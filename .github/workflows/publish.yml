@@ -1,0 +1,33 @@
+name: Publicar en npm
+
+# Un tag `vX.Y.Z` publica esa versión. Trusted publishing: npm confía en este workflow por OIDC
+# (sin token guardado) y agrega la provenance sola. Se configura en npmjs.com → el paquete →
+# Trusted publisher: organización `eiaifactory`, repo `monitor`, workflow `publish.yml`.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing exige npm 11.5.1 o más; Node 22 trae npm 10.
+      - run: npm install -g npm@^11.5.1
+      - run: npm ci
+      - name: El tag coincide con la versión del package.json
+        run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm run tamano
+      - run: npm publish

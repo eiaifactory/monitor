@@ -1,0 +1,40 @@
+{
+  "name": "@eiaifactory/monitor",
+  "version": "0.1.0",
+  "description": "Manda los errores de un sistema de cliente al Monitor de EI AI Factory, sin que el usuario final lo note.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eiaifactory/monitor.git"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.js"
+    },
+    "./deno": {
+      "types": "./dist/deno.d.ts",
+      "default": "./dist/deno.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "tamano": "node scripts/tamano.mjs"
+  },
+  "devDependencies": {
+    "happy-dom": "^20.14.5",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  }
+}
