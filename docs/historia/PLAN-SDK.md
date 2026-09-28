@@ -1,12 +1,12 @@
 # Plan — SDK `@eiaifactory/monitor` v0.1.0
 
-**Progreso General:** `78%`
+**Progreso General:** `91%`
 
 **Spec:** [`SPEC-MONITOR.md`](https://github.com/eiaifactory/eiaifactory-finance/blob/main/docs/historia/SPEC-MONITOR.md)
 (repo `eiaifactory-finance`, §«El contrato HTTP v1» y §«SDK») · **Plan de finance:**
 [`PLAN-MONITOR.md`](https://github.com/eiaifactory/eiaifactory-finance/blob/main/docs/historia/PLAN-MONITOR.md)
 (este SDK va entre su PR A, ya mergeado, y el piloto de Fratelli) · **Revisado con `/plan-review` el
-2026-09-27** · **Estado:** aprobado por Mariano el 2026-09-28, en ejecución
+2026-09-27** · **Estado:** v0.1.0 publicada en npm el 2026-09-28; falta la prueba en Supabase Edge (piloto de Fratelli)
 
 ## TLDR
 
@@ -99,16 +99,14 @@ nunca en la URL; sin `sendBeacon`; la huella la calcula el server; el SDK redact
 
 ## Tareas
 
-- [ ] 🟨 **Paso 0: Prerrequisitos** (Mariano; bloquean sólo el paso 8, salvo el primero)
-  - [x] 🟩 OK para el primer push a `main` (plan, README mínimo, `LICENSE` MIT). Dado el 2026-09-28.
-  - [ ] 🟥 Pasar el repo `eiaifactory/monitor` a público (GitHub → Settings → Danger Zone).
-  - [ ] 🟥 Cuenta de npm y organización `eiaifactory` (gratis para paquetes públicos). Hoy no hay
-    nada publicado bajo `@eiaifactory` y desde esta máquina no hay sesión de npm.
-  - [ ] 🟥 La **primera** publicación la hace Mariano con su cuenta (`npm publish --access public`
-    desde el repo, después del paso 7): npm exige que el paquete exista antes de configurar
-    trusted publishing. Después, en npmjs.com → el paquete → Trusted publisher: organización
-    `eiaifactory`, repo `monitor`, workflow `publish.yml`. De ahí en más publica el CI con un tag,
-    sin token.
+- [x] 🟩 **Paso 0: Prerrequisitos** (Mariano, 2026-09-28)
+  - [x] 🟩 OK para el primer push a `main` (plan, README mínimo, `LICENSE` MIT).
+  - [x] 🟩 Repo `eiaifactory/monitor` público.
+  - [x] 🟩 Cuenta de npm (con verificación en dos pasos: sin ella npm rechaza el publish con 403) y
+    organización `eiaifactory`.
+  - [x] 🟩 Primera publicación a mano desde `main` (sin provenance: la pone sólo el CI) y trusted
+    publisher configurado en npmjs.com (organización `eiaifactory`, repo `monitor`, workflow
+    `publish.yml`). La configuración se prueba de verdad con el primer tag que publique el CI.
 
 - [x] 🟩 **Paso 1: Andamiaje** (en `feat/sdk-v0`)
   - [x] 🟩 `package.json`: `@eiaifactory/monitor` 0.1.0, `type: module`, `exports` `"."` →
@@ -173,7 +171,7 @@ nunca en la URL; sin `sendBeacon`; la huella la calcula el server; el SDK redact
   - [x] 🟩 `README.md` es el contrato, con ejemplos (navegador + React Query + `release` en
     Railway, edge, Node, `curl`, `app.run_job` con `net.http_post`) y qué NO hace. **El SQL de
     `app.run_job` no se ejecutó**: lo valida el piloto de Fratelli.
-  - [ ] 🟨 `.github/workflows/ci.yml` escrito; falta verlo en verde en el PR.
+  - [x] 🟩 `.github/workflows/ci.yml`: en verde en eiaifactory/monitor#1 (mergeado el 2026-09-28).
   - [ ] 🟨 `.github/workflows/publish.yml` escrito (con chequeo de que el tag coincide con la
     versión); se prueba recién en el paso 8.
 
@@ -195,12 +193,14 @@ nunca en la URL; sin `sendBeacon`; la huella la calcula el server; el SDK redact
     crudos antes de que Chrome disparara un `throw` y un rechazo, que se perdieron. Es el freno de
     ráfaga; quedó documentado en el README.
 
-- [ ] 🟥 **Paso 8: Publicar v0.1.0 y cerrar**
-  - [ ] 🟥 Mariano: primera publicación y trusted publisher (paso 0).
-  - [ ] 🟥 `npm view @eiaifactory/monitor` muestra 0.1.0 con los dos `exports`. La prueba de que
-    `npm:@eiaifactory/monitor@0.1.0/deno` resuelve **en Supabase Edge** es el primer deploy del
-    piloto de Fratelli en staging (su plan).
-  - [ ] 🟥 PR en finance: `PLAN-MONITOR.md` marca el SDK hecho y linkeado, y suma al PR B
+- [ ] 🟨 **Paso 8: Publicar v0.1.0 y cerrar**
+  - [x] 🟩 Mariano: primera publicación y trusted publisher (paso 0).
+  - [x] 🟩 `npm view @eiaifactory/monitor` (2026-09-28): 0.1.0, `latest`, MIT, 8 archivos, los dos
+    `exports` con sus tipos; la integridad coincide con el tarball que armó Mariano. Instalado desde
+    npm en una carpeta aparte, las dos entradas importan y exportan lo esperado.
+  - [ ] 🟥 Que `npm:@eiaifactory/monitor@0.1.0/deno` resuelve **en Supabase Edge**: lo prueba el
+    primer deploy del piloto de Fratelli en staging (su plan).
+  - [ ] 🟨 PR en finance: `PLAN-MONITOR.md` marca el SDK hecho y linkeado, y suma al PR B
     `Access-Control-Expose-Headers: Retry-After` en `monitor-ingesta`.
 
 ## Pendiente conocido
