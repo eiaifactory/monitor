@@ -1,6 +1,6 @@
 # Plan — SDK `@eiaifactory/monitor` v0.1.0
 
-**Progreso General:** `3%`
+**Progreso General:** `78%`
 
 **Spec:** [`SPEC-MONITOR.md`](https://github.com/eiaifactory/eiaifactory-finance/blob/main/docs/historia/SPEC-MONITOR.md)
 (repo `eiaifactory-finance`, §«El contrato HTTP v1» y §«SDK») · **Plan de finance:**
@@ -110,96 +110,90 @@ nunca en la URL; sin `sendBeacon`; la huella la calcula el server; el SDK redact
     `eiaifactory`, repo `monitor`, workflow `publish.yml`. De ahí en más publica el CI con un tag,
     sin token.
 
-- [ ] 🟥 **Paso 1: Andamiaje** (en `feat/sdk-v0`)
-  - [ ] 🟥 `package.json`: `@eiaifactory/monitor` 0.1.0, `type: module`, `exports` `"."` →
+- [x] 🟩 **Paso 1: Andamiaje** (en `feat/sdk-v0`)
+  - [x] 🟩 `package.json`: `@eiaifactory/monitor` 0.1.0, `type: module`, `exports` `"."` →
     `dist/browser.js` y `"./deno"` → `dist/deno.js` (con `types`), `files: ["dist"]`,
-    `sideEffects: false`, `publishConfig.access: public`, `repository` exacto (lo exige provenance),
-    `license: MIT`.
-  - [ ] 🟥 `tsconfig.json` estricto; `tsup.config.ts` (dos entradas, ESM, `dts`, minificado,
-    `target` es2020 para el navegador); `vitest.config.ts` (`happy-dom` para `test/browser`,
-    `node` para el resto); `.gitignore`.
-  - [ ] 🟥 `npm ci`, `npm run typecheck`, `npm test` (vacío) y `npm run build` corriendo con el Node
-    de 64 bits.
+    `sideEffects: false`, `publishConfig.access: public`, `repository` exacto, `license: MIT`.
+  - [x] 🟩 `tsconfig.json` estricto; `tsup.config.ts` (dos entradas, ESM, `dts`, minificado, es2020,
+    sin chunks compartidos); `vitest.config.ts` (proyecto `browser` con `happy-dom`, `node` para el
+    resto); `.gitignore` y `.gitattributes` (LF).
+  - [x] 🟩 `npm install` (con el npm del sistema corriendo sobre el Node x64 portable: el npm del
+    portable quedó roto), typecheck, test y build en verde. Versiones: vitest 4.1 y TypeScript 5.9
+    (vitest 5 pide Node 22 y TS 7 es el port nativo, sin garantía con el `dts` de tsup).
 
-- [ ] 🟥 **Paso 2: El núcleo** (`src/core/`, sin DOM ni Deno, con test cada uno)
-  - [ ] 🟥 `contrato.ts`: copia de los tipos y topes de finance, con el link a la fuente.
-  - [ ] 🟥 `normalizar.ts`: cualquier cosa → `{ mensaje, tipo_error, stack, codigo }`. Entiende
-    `Error`, errores de Supabase/PostgREST (`code`, `message`, `details`, `hint`), strings, objetos
-    raros, `null` y objetos circulares, sin lanzar nunca. Recorta a los topes del contrato.
-  - [ ] 🟥 `pii.ts`: primera línea de PII, la misma regla que el server (claves sensibles de
-    `contexto` → `[redactado]`, emails y teléfonos en mensaje, stack, ruta y valores; `usuario_id`
-    con `@`). Copia de la lógica de `_shared/monitor/pii.ts` de finance, con sus casos de test.
-  - [ ] 🟥 `colapso.ts`: hash corto (FNV-1a) de origen + tipo + mensaje + primer frame; dentro de
-    10 s, suma `repeticiones` al evento que todavía está en la cola en vez de encolar otro.
-  - [ ] 🟥 `cola.ts`: cola con tope (descarta lo más viejo), serializable, con el tope por minuto.
-  - [ ] 🟥 `envio.ts`: arma lotes de hasta 20 **y hasta 60 KB**, `fetch` con timeout
-    (`AbortController`), y decide por status: 202 → saca de la cola; 429 → pausa hasta
-    `Retry-After` o hasta el próximo minuto; 5xx o red → backoff 1 → 2 → 4 → 30 s; 413 → parte el
-    lote a la mitad; 400 → descarta ese lote (el SDK no manda cuerpos inválidos, sería un bug);
-    401 → apaga el cliente. Toda promesa atajada.
-  - [ ] 🟥 `esperado.ts`: `esEsperado(e)` (PT4xx, `AbortError`, 401/403 de auth) + el `ignorar` del
-    cliente. `id.ts`: `crypto.randomUUID` con respaldo que respeta el formato que valida finance.
+- [x] 🟩 **Paso 2: El núcleo** (`src/core/`, sin DOM ni Deno, con test cada uno)
+  - [x] 🟩 `contrato.ts`: copia de tipos, topes y `recortar` de finance, con el link a la fuente.
+  - [x] 🟩 `normalizar.ts`: `Error`, PostgREST (`code` → `codigo`; `details` y `hint` NO se mandan:
+    traen valores de filas), Functions/Auth (`status`, `context.status`), strings, primitivos,
+    circulares, Proxies que lanzan. Un objeto plano o array va como JSON; cualquier otro (un `Event`
+    rechazado) como su etiqueta (`[object Event]`). `armarEvento` aplica topes y PII.
+  - [x] 🟩 `pii.ts`: la regla de finance con sus mismos casos de test. El teléfono **sin
+    lookbehind**: es error de sintaxis en Safari < 16.4 y rompería el bundle del cliente.
+  - [x] 🟩 `colapso.ts`: FNV-1a de origen + tipo + mensaje + primer frame, ventana de 10 s.
+  - [x] 🟩 `cola.ts`: tope con descarte de lo más viejo, tope por minuto de reloj, sin colapsar sobre
+    lo que está en vuelo; persistencia con **tope de 128 KB** (el `localStorage` es del cliente).
+  - [x] 🟩 `envio.ts`: lotes de hasta 20 y 60 KB; 202/400/401/413/429/5xx según el contrato. El
+    timeout **corta por su cuenta además de abortar**: un `fetch` que ignora la señal (un
+    polyfill) dejaba el envío colgado para siempre (lo encontró un test).
+  - [x] 🟩 `esperado.ts` (PT4xx, `AbortError`, 401/403, y los `Auth*` de Supabase con 4xx:
+    contraseña mal escrita) e `ignorar` con `search` (una regex con `/g` alternaba con `test`);
+    `id.ts` con respaldo `getRandomValues` → `Math.random` (http en la red del local).
 
-- [ ] 🟥 **Paso 3: Entrada del navegador** (`src/browser/`)
-  - [ ] 🟥 `initMonitor({ clave, url?, release?, ignorar?, maxBuffer?, maxPorMinuto?, debug? })`.
-    Sin clave o sin `window` → no-op. Instalar es sumar dos listeners (`error`,
-    `unhandledrejection`) que no llaman a `preventDefault` ni pisan handlers existentes.
-  - [ ] 🟥 `capturar(error, { ruta?, contexto? })`, `setContext()`, `setUsuario({ id, rol })`,
-    `limpiarUsuario()`, `flush()`, `esEsperado()`, y `onErrorQuery` / `onErrorMutation` para pasar a
-    `QueryCache` / `MutationCache` de React Query (aditivos: no reemplazan los `onError` de cada
-    feature). La ruta sale de `location.pathname`, el user agent de `navigator` y `ocurrido_at` del
-    reloj, en el momento de capturar.
-  - [ ] 🟥 Procesamiento diferido (`requestIdleCallback` o `setTimeout(0)`), con guard de
-    reentrada: normalizar → descartar esperados → PII → colapsar → encolar → persistir.
-    `dispositivo_id` se lee o crea en `localStorage` ahí, no al iniciar.
-  - [ ] 🟥 Envío cada 2 s o al juntar 10; en `pagehide` y en `visibilitychange` a oculto, un último
-    `fetch` con `keepalive` y la cola persistida; al iniciar, recupera lo que quedó de la carga
-    anterior.
-  - [ ] 🟥 Todo envuelto: `localStorage` inaccesible o lleno, `fetch` inexistente, JSON circular,
-    errores de 1 MB — el SDK se degrada, nunca lanza.
+- [x] 🟩 **Paso 3: Entrada del navegador** (`src/browser/`)
+  - [x] 🟩 `initMonitor` (una vez por página; sin clave o sin `window`, no-op), listeners con
+    `addEventListener` (no pisa `window.onerror`).
+  - [x] 🟩 `capturar`, `setContext` (suma; `undefined` saca), `setUsuario`, `limpiarUsuario`, `flush`,
+    `esEsperado`, `onErrorQuery` / `onErrorMutation`.
+  - [x] 🟩 Procesamiento diferido con guard de reentrada; `dispositivo_id` y la cola se leen al
+    procesar, no al iniciar. Hasta 100 errores crudos esperando (freno de memoria en una ráfaga).
+  - [x] 🟩 Envío cada 2 s o al juntar 10; tras un fallo manda la espera del backoff (un test
+    encontró que la pisaban los 2 s); `pagehide` y `visibilitychange` con `keepalive`.
+  - [x] 🟩 Todo envuelto: storage que tira, `fetch` inexistente, circulares, 1 MB.
 
-- [ ] 🟥 **Paso 4: Entrada de servidor** (`src/deno/`)
-  - [ ] 🟥 `initMonitor({ clave, url?, release?, funcion, origen? })` + `capturar` + `flush` (2 s de
-    timeout, un reintento, `Retry-After` si viene).
-  - [ ] 🟥 `withHandler(monitor, handler, { esEsperado?, aRespuesta? })`: si el handler responde,
-    devuelve esa respuesta tal cual y reporta las 5xx; si lanza, reporta y devuelve
-    `aRespuesta(error)` o un 500 JSON; el envío va en `EdgeRuntime.waitUntil`.
-  - [ ] 🟥 Sin globals de Deno obligatorios: se puede probar en Node con un `EdgeRuntime` falso.
+- [x] 🟩 **Paso 4: Entrada de servidor** (`src/deno/`)
+  - [x] 🟩 `initMonitor({ clave, url?, release?, funcion, origen? })` + `capturar` + `flush` (2 s por
+    intento, un reintento a 1 s; ante 429 espera `Retry-After` hasta 10 s). Flushes concurrentes
+    comparten el envío en curso.
+  - [x] 🟩 `withHandler`: la misma respuesta; 5xx reportada sin cuerpo; si lanza, `aRespuesta` o 500
+    JSON (y si `aRespuesta` lanza, el 500). **Al terminar manda todo lo capturado en el request**,
+    también lo capturado a mano antes de un 200. Pasa los argumentos extra de `Deno.serve`.
+  - [x] 🟩 Probado en Node con un `EdgeRuntime` falso.
 
-- [ ] 🟥 **Paso 5: Tests de la Regla 0 y de robustez** (los que pide el spec)
-  - [ ] 🟥 `capturar()` retorna en < 1 ms y en el mismo tick no llama a `fetch` ni a `localStorage`
-    (espías con orden de llamadas).
-  - [ ] 🟥 Nunca lanza: circulares, `null`, `undefined`, símbolos, strings de 1 MB, `localStorage`
-    que tira, `fetch` que rechaza, finance que devuelve 500, 429 y timeout. **Un fallo propio no
-    dispara `unhandledrejection`** (no hay bucle).
-  - [ ] 🟥 Cola, colapso, tope por minuto, lotes que no pasan 60 KB, 413 que parte el lote, 429 sin
-    header legible que espera al próximo minuto, backoff, 401 que apaga, `pagehide` y
-    `visibilitychange`, no-op sin clave, React Query que ignora lo esperado y no manda la
-    `queryKey` entera. Servidor: respuesta idéntica, envío después de responder, 5xx reportado sin
-    cuerpo, esperado no reportado.
-  - [ ] 🟥 Tamaño: `scripts/tamano.mjs` mide la entrada del navegador en gzip y falla por encima de
-    4 KB. `npm pack --dry-run` confirma que el paquete lleva sólo `dist`, README y LICENSE.
+- [x] 🟩 **Paso 5: Tests de la Regla 0 y de robustez** — 93 tests en 9 archivos.
+  - [x] 🟩 `capturar()` < 1 ms (peor de 100, con errores de 1 MB) y sin red ni storage en el mismo tick.
+  - [x] 🟩 Nunca lanza; un fallo propio no llega a `unhandledrejection` (ni al de Node) ni vuelve
+    a entrar como evento.
+  - [x] 🟩 Cola, colapso, tope por minuto, 60 KB, 413, 429 sin header, backoff y su reinicio, 401,
+    `pagehide`, `visibilitychange`, no-op, React Query; servidor completo.
+  - [x] 🟩 `scripts/tamano.mjs`: **4081 B gzip** de 4096 (quedan 15 B; se recortaron los textos de
+    `debug`). `npm pack --dry-run`: `dist`, README, LICENSE y package.json.
+  - [x] 🟩 Mutaciones: 16 cambios de comportamiento aplicados de a uno; los 16 rompen la suite.
 
-- [ ] 🟥 **Paso 6: README y CI**
-  - [ ] 🟥 `README.md` **es el contrato**: endpoint, auth, el evento campo por campo con sus topes,
-    las respuestas, y ejemplos en `curl`, en `net.http_post` (el `app.run_job` de un cron) y con el
-    SDK (navegador, React Query, edge). Con los nombres de variables de la pantalla de finance, la
-    Regla 0 y qué NO hace.
-  - [ ] 🟥 `.github/workflows/ci.yml`: en cada PR y en `main`, `npm ci` → typecheck → test → build →
-    tamaño → `npm pack --dry-run`.
-  - [ ] 🟥 `.github/workflows/publish.yml`: en un tag `v*`, lo mismo y `npm publish` con
-    `id-token: write` (trusted publishing con provenance), Node 22.14+ y npm 11.5.1+.
+- [ ] 🟨 **Paso 6: README y CI**
+  - [x] 🟩 `README.md` es el contrato, con ejemplos (navegador + React Query + `release` en
+    Railway, edge, Node, `curl`, `app.run_job` con `net.http_post`) y qué NO hace. **El SQL de
+    `app.run_job` no se ejecutó**: lo valida el piloto de Fratelli.
+  - [ ] 🟨 `.github/workflows/ci.yml` escrito; falta verlo en verde en el PR.
+  - [ ] 🟨 `.github/workflows/publish.yml` escrito (con chequeo de que el tag coincide con la
+    versión); se prueba recién en el paso 8.
 
-- [ ] 🟥 **Paso 7: Contra finance de verdad, antes de publicar** (con la clave de prueba del
-  ambiente «Eiai Factory Finance · dev», que ya existe y se borra en el paso 8 del plan de finance)
-  - [ ] 🟥 Entrada de servidor, corrida en Node contra `monitor-ingesta` de producción: un error
-    llega, se agrupa, y el reintento no duplica (lectura de la base para confirmarlo).
-  - [ ] 🟥 Entrada del navegador en Chrome real (Playwright, página local con el build): `throw`,
-    promesa rechazada y un error de React Query llegan con ruta, release y dispositivo; un error
-    esperado no llega; y **el envío al irse**: tirar un error y navegar enseguida, y ver si llega
-    por `keepalive` o en la carga siguiente. El resultado se anota acá.
-  - [ ] 🟥 Finance inalcanzable (la ruta bloqueada en Playwright): la página no cambia, `capturar`
-    sigue en < 1 ms, la cola persiste y el SDK deja de insistir según el backoff.
+- [x] 🟩 **Paso 7: Contra finance de verdad** (2026-09-28, clave del ambiente fixture)
+  - [x] 🟩 Servidor, en Node con el build: la primera respuesta se «perdió» a propósito y el
+    reintento volvió `duplicados: 1`; en la base, el evento está una vez y los dos `throw` son un
+    problema con `conteo 2`; la 503 llegó como `e2e-servidor: respondió 503`, sin el cuerpo, y
+    la ruta sin query.
+  - [x] 🟩 Navegador (Chromium de Playwright, página local con el build y un `QueryClient` real):
+    `throw`, promesa rechazada, query y mutation llegaron con ruta, release, dispositivo, user
+    agent y tipo; de la key, sólo el nombre; el PT402 no llegó; 200 `capturar` viajaron como 2
+    eventos con `repeticiones`; `capturar` ≤ 0,2 ms. **Envío al irse: llega por `keepalive`**
+    (1 s después, con la página ya en otra URL), también en un contexto limpio sin el preflight
+    cacheado. Como la pestaña muere antes de la respuesta, la carga siguiente lo reenvía y finance
+    lo cuenta como duplicado.
+  - [x] 🟩 Finance bloqueado: página intacta, `capturar` en 0,2 ms, cola persistida, reintentos a
+    +1, +2, +4 y +30 s; al desbloquear, un lote con `recibidos: 3, duplicados: 1` y la cola vacía.
+  - Hallazgo del arnés, no del SDK: un loop de 200 `capturar` sincrónicos llenó el tope de 100
+    crudos antes de que Chrome disparara un `throw` y un rechazo, que se perdieron. Es el freno de
+    ráfaga; quedó documentado en el README.
 
 - [ ] 🟥 **Paso 8: Publicar v0.1.0 y cerrar**
   - [ ] 🟥 Mariano: primera publicación y trusted publisher (paso 0).
@@ -208,3 +202,9 @@ nunca en la URL; sin `sendBeacon`; la huella la calcula el server; el SDK redact
     piloto de Fratelli en staging (su plan).
   - [ ] 🟥 PR en finance: `PLAN-MONITOR.md` marca el SDK hecho y linkeado, y suma al PR B
     `Access-Control-Expose-Headers: Retry-After` en `monitor-ingesta`.
+
+## Pendiente conocido
+
+- `npm audit`: esbuild 0.27.x (dependencia de tsup, sólo desarrollo) tiene un aviso bajo sobre su
+  servidor de desarrollo en Windows, que acá no se usa. El arreglo está en 0.28.1 y tsup fija
+  `^0.27`: se resuelve cuando tsup suba, o con un `overrides`.

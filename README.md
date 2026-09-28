@@ -133,6 +133,7 @@ Decisión del spec: los rechazos de negocio y los `toast.error` no son incidente
 |---|---|---|
 | Colapso | El mismo error en 10 s viaja una vez, con `repeticiones` | — |
 | Tope | 20 eventos nuevos por minuto (`maxPorMinuto`) | — |
+| Ráfaga | Hasta 100 errores esperando a ser procesados; lo que llega con eso lleno se pierde | — |
 | Cola | 50 (`maxBuffer`) en `localStorage`, hasta 128 KB; descarta lo más viejo | 50 en memoria |
 | Envío | Cada 2 s o al juntar 10; lotes de hasta 20 eventos y 60 KB | Al terminar el request |
 | Timeout | 3 s | 2 s |
