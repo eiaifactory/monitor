@@ -1,12 +1,13 @@
 # Plan — SDK `@eiaifactory/monitor` v0.1.0
 
-**Progreso General:** `91%`
+**Progreso General:** `97%`
 
 **Spec:** [`SPEC-MONITOR.md`](https://github.com/eiaifactory/eiaifactory-finance/blob/main/docs/historia/SPEC-MONITOR.md)
 (repo `eiaifactory-finance`, §«El contrato HTTP v1» y §«SDK») · **Plan de finance:**
 [`PLAN-MONITOR.md`](https://github.com/eiaifactory/eiaifactory-finance/blob/main/docs/historia/PLAN-MONITOR.md)
 (este SDK va entre su PR A, ya mergeado, y el piloto de Fratelli) · **Revisado con `/plan-review` el
-2026-09-27** · **Estado:** v0.1.0 publicada en npm el 2026-09-28; falta la prueba en Supabase Edge (piloto de Fratelli)
+2026-09-27** · **Estado:** v0.1.0 publicada en npm el 2026-09-28 y andando en Supabase Edge desde el
+2026-09-29 (piloto de Fratelli en staging); sólo falta que `publish.yml` corra por primera vez
 
 ## TLDR
 
@@ -171,6 +172,11 @@ nunca en la URL; sin `sendBeacon`; la huella la calcula el server; el SDK redact
   - [x] 🟩 `README.md` es el contrato, con ejemplos (navegador + React Query + `release` en
     Railway, edge, Node, `curl`, `app.run_job` con `net.http_post`) y qué NO hace. **El SQL de
     `app.run_job` no se ejecutó**: lo valida el piloto de Fratelli.
+    *(29-sep: lo que corrió en el DEV de Fratelli es su migración `20260929130000_monitor_run_job.sql`,
+    que parte de este ejemplo y le suma tres cosas: el `raise warning` que pide el spec, no mandar
+    nada si falta `monitor_clave` en el vault —acá quedaría `'Bearer ' || NULL`— y `ubicacion` con el
+    prefijo `cron `. Así probada, un `42883` llegó a finance y un `PT422` no encoló nada. **El README
+    todavía no tiene esas tres cosas.**)*
   - [x] 🟩 `.github/workflows/ci.yml`: en verde en eiaifactory/monitor#1 (mergeado el 2026-09-28).
   - [ ] 🟨 `.github/workflows/publish.yml` escrito (con chequeo de que el tag coincide con la
     versión); se prueba recién en el paso 8.
@@ -193,15 +199,21 @@ nunca en la URL; sin `sendBeacon`; la huella la calcula el server; el SDK redact
     crudos antes de que Chrome disparara un `throw` y un rechazo, que se perdieron. Es el freno de
     ráfaga; quedó documentado en el README.
 
-- [ ] 🟨 **Paso 8: Publicar v0.1.0 y cerrar**
+- [x] 🟩 **Paso 8: Publicar v0.1.0 y cerrar**
   - [x] 🟩 Mariano: primera publicación y trusted publisher (paso 0).
   - [x] 🟩 `npm view @eiaifactory/monitor` (2026-09-28): 0.1.0, `latest`, MIT, 8 archivos, los dos
     `exports` con sus tipos; la integridad coincide con el tarball que armó Mariano. Instalado desde
     npm en una carpeta aparte, las dos entradas importan y exportan lo esperado.
-  - [ ] 🟥 Que `npm:@eiaifactory/monitor@0.1.0/deno` resuelve **en Supabase Edge**: lo prueba el
+  - [x] 🟩 Que `npm:@eiaifactory/monitor@0.1.0/deno` resuelve **en Supabase Edge**: lo prueba el
     primer deploy del piloto de Fratelli en staging (su plan).
-  - [ ] 🟨 PR en finance: `PLAN-MONITOR.md` marca el SDK hecho y linkeado, y suma al PR B
+    *(29-sep: el deploy de DEV de Fratelli —`pos-checkout`, `stock-adjust` y `admin-users` con
+    `withHandler`, eiaifactory/sistema-mercado-fratelli#334— salió en verde, y las 12 respuestas sin
+    sesión son idénticas a las de antes. Con sesión, un 400 y un 403 de negocio respondieron igual
+    y no llegaron a finance, y un cobro y un ajuste normales anduvieron. **No se provocó una 5xx
+    real de una edge**: que el `waitUntil` la entregue en Supabase Edge está probado en Node, no ahí.)*
+  - [x] 🟩 PR en finance: `PLAN-MONITOR.md` marca el SDK hecho y linkeado, y suma al PR B
     `Access-Control-Expose-Headers: Retry-After` en `monitor-ingesta`.
+    *(eiaifactory/eiaifactory-finance#89 —el plan— y #90 —el header, desplegado con la bandeja—.)*
 
 ## Pendiente conocido
 
