@@ -81,7 +81,7 @@ Instalado, captura solo los errores no manejados (`error`) y las promesas rechaz
 ## Edge functions (Supabase)
 
 ```ts
-import { initMonitor, withHandler } from 'npm:@eiaifactory/monitor@0.1.0/deno';
+import { initMonitor, withHandler } from 'npm:@eiaifactory/monitor@0.1.2/deno';
 
 const monitor = initMonitor({
   clave: Deno.env.get('MONITOR_CLAVE'),
