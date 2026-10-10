@@ -8,7 +8,7 @@
 (este SDK va entre su PR A, ya mergeado, y el piloto de Fratelli) · **Revisado con `/plan-review` el
 2026-09-27** · **Estado:** v0.1.0 publicada en npm el 2026-09-28 y andando en Supabase Edge desde el
 2026-09-29 (piloto de Fratelli en staging). v0.1.1 publicada por `publish.yml` el 2026-10-10, con
-provenance
+provenance, y v0.1.2 (la regex de email de la PII, lineal) el mismo día, igual
 
 ## TLDR
 
@@ -246,7 +246,7 @@ nunca en la URL; sin `sendBeacon`; la huella la calcula el server; el SDK redact
   con `timeout`. De 6 mutaciones del SDK, los nuevos detectan las 6 y los viejos 2. *Se pierde* la
   cota absoluta: un `capturar` que se vuelva lento sin leer el error ni hacer I/O no lo agarra
   ningún test (el viejo tampoco lo agarraba de forma confiable: medía ruido).
-- ~~**La regex de email de la PII es cuadrática**~~ **— arreglada en la 0.1.2, sin publicar.**
+- ~~**La regex de email de la PII es cuadrática**~~ **— arreglada en la 0.1.2, publicada el 10-oct.**
   `EMAIL` en `src/core/pii.ts` hacía backtracking O(n²) sobre una tira de `[A-Za-z0-9._%+-]` sin
   `@`: un stack de 8 KB así costaba 44 ms por evento en desktop, en el hilo principal, y como el
   evento se arma antes de colapsar, una ráfaga de 100 errores iguales bloqueaba ~4 s. Ahora la
@@ -256,6 +256,11 @@ nunca en la URL; sin `sendBeacon`; la huella la calcula el server; el SDK redact
   propuesto, un dominio más largo quedaba sin redactar entero. Lo que se resigna: de una parte
   local de más de 64 (inválida) queda visible el comienzo. «lotes de hasta 60 KB…»
   (`test/browser/envio.test.ts`) bajó de ~1 s a ~55 ms, y el navegador pesa 4086 B gzip de 4096.
-  **Falta:** publicarla con el tag `v0.1.2` (OK de Mariano), y finance, que corre la misma regex
-  cuadrática en la ingesta (`supabase/functions/_shared/monitor/pii.ts:12`, visto en su `main` el
-  10-oct) y tiene que sumar el mismo caso a su `pii.test.ts`.
+  *(10-oct: el tag `v0.1.2`, sobre `652d2c5`, la publicó por `publish.yml` en el primer intento,
+  con provenance firmada; npm la muestra como `latest` y el paquete publicado trae el `{1,64}` en
+  las dos entradas.)* **Falta que la tomen:** finance, que corre la misma regex en la ingesta
+  (eiaifactory/eiaifactory-finance#110, sin mergear; al mergear hay que desplegar `monitor-ingesta`,
+  `monitor-latido`, `monitor-webhook-github` y `monitor-webhook-railway`), y Fratelli, que sigue en
+  la 0.1.0 (eiaifactory/sistema-mercado-fratelli#469, contra `dev`). En producción, las edge de
+  Fratelli no se redesplegan solas con un cambio que sólo toca `_shared`: hay que lanzar el deploy
+  a mano después de `/promover`.
