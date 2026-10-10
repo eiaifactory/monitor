@@ -229,7 +229,28 @@ nunca en la URL; sin `sendBeacon`; la huella la calcula el server; el SDK redact
 - `npm audit`: esbuild 0.27.x (dependencia de tsup, sólo desarrollo) tiene un aviso bajo sobre su
   servidor de desarrollo en Windows, que acá no se usa. El arreglo está en 0.28.1 y tsup fija
   `^0.27`: se resuelve cuando tsup suba, o con un `overrides`.
-- **Un test de tiempos inestable en el CI:** «retorna en menos de 1 ms, aun con un error de 1 MB»
-  (`test/browser/regla0.test.ts:39`) dio timeout de 5 s en el runner, en el push a `main` del
-  10-oct. Re-corrido, pasó, y pasa en local y en el PR. Si vuelve a fallar, darle un timeout propio
-  o medir de otra forma.
+- ~~**Un test de tiempos inestable en el CI**~~ **— resuelto el 10-oct, sin tocar el SDK.**
+  «retorna en menos de 1 ms, aun con un error de 1 MB» falló dos veces ese día: timeout de 5 s en
+  el push a `main`, y en el PR #5 midió 2,37 ms y arrastró al test de `requestIdleCallback`, que
+  también dio timeout. *Causa:* el tiempo no se iba en `capturar` (0,005 ms de mediana) sino en el
+  `flush()` del final, que procesaba 50 veces el error de 1 MB; cada vez la regex de email de
+  `pii.ts` recorre un stack de 8 KB sin espacios y es cuadrática (44 ms en local, 4,4 a 5,7 s el
+  test entero en el runner: hasta las corridas verdes estaban al borde de los 5 s). En el PR #5 el
+  «peor de 100» midió al recolector de basura y al scheduler del runner, la aserción cortó antes
+  del `flush()`, y el `setTimeout` real con esos 100 errores quedó vivo y bloqueó al test siguiente
+  (reproducido en local: pasa de 3 a 2265 ms). Los «Failed to fetch» del log son el `debug` del
+  test «sin console propio», con el `fetch` falso: no hay red real.
+  *Ahora* los tests prueban la regla con timers falsos y sin reloj: `capturar` no lee el error (un
+  `Proxy` anota cada lectura) ni serializa, y 100 capturas programan un solo `setTimeout(0)`; con
+  `requestIdleCallback`, ningún timer lo procesa antes de que el navegador esté ocioso, y se pide
+  con `timeout`. De 6 mutaciones del SDK, los nuevos detectan las 6 y los viejos 2. *Se pierde* la
+  cota absoluta: un `capturar` que se vuelva lento sin leer el error ni hacer I/O no lo agarra
+  ningún test (el viejo tampoco lo agarraba de forma confiable: medía ruido).
+- **La regex de email de la PII es cuadrática** (sin arreglar: es código del SDK, 0.1.2). `EMAIL`
+  en `src/core/pii.ts` hace backtracking O(n²) sobre una tira de `[A-Za-z0-9._%+-]` sin `@`: un
+  stack de 8 KB así cuesta 44 ms por evento en desktop, en el hilo principal, y como el evento se
+  arma antes de colapsar, una ráfaga de 100 errores iguales bloquea ~4 s. Con la parte local
+  acotada a `{1,64}` (el máximo del RFC 5321) y el dominio a `{1,255}`: 1,8 ms con 8 KB y 13 ms con
+  64 KB (hoy, 3,2 s), con los mismos resultados en los casos probados. Es también lo que hace tardar
+  ~1 s en local y ~2 s en el CI a «lotes de hasta 60 KB…» (`test/browser/envio.test.ts`). Según la
+  cabecera de `pii.ts`, finance usa la misma regla: revisarla también ahí.
