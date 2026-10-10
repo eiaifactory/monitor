@@ -176,7 +176,9 @@ nunca en la URL; sin `sendBeacon`; la huella la calcula el server; el SDK redact
     que parte de este ejemplo y le suma tres cosas: el `raise warning` que pide el spec, no mandar
     nada si falta `monitor_clave` en el vault —acá quedaría `'Bearer ' || NULL`— y `ubicacion` con el
     prefijo `cron `. Así probada, un `42883` llegó a finance y un `PT422` no encoló nada. **El README
-    todavía no tiene esas tres cosas.**)*
+    todavía no tiene esas tres cosas.**)* *(10-oct: el README copia esa migración, que corre en prod
+    en Fratelli desde el 1-oct. Además suma el `revoke`, el `comment`, `pg_net`, el ejemplo de
+    `huella_manual` (`cron:<función>`) y la huella v2 de finance (#99). Sale en la 0.1.1.)*
   - [x] 🟩 `.github/workflows/ci.yml`: en verde en eiaifactory/monitor#1 (mergeado el 2026-09-28).
   - [ ] 🟨 `.github/workflows/publish.yml` escrito (con chequeo de que el tag coincide con la
     versión); se prueba recién en el paso 8.

@@ -182,7 +182,7 @@ rechazan uno por uno con `lote_excedido`) y **hasta 64 KB** (si no, `413` y se r
 | `user_agent` | string | no | 512 | |
 | `contexto` | objeto plano de escalares | no | 2 KB | Claves sensibles → `[redactado]` |
 | `repeticiones` | entero ≥ 1 | no | — | Colapso local. Default 1 |
-| `huella_manual` | string | no | 128 | Reemplaza la agrupación calculada (`cron:offers-expire`) |
+| `huella_manual` | string | no | 128 | Reemplaza la agrupación calculada (`cron:<función>`, como hace `app.run_job`) |
 
 Los topes son en caracteres. Un texto más largo se recorta con la marca `…[cortado]`.
 
@@ -198,8 +198,11 @@ Los topes son en caracteres. Un texto más largo se recorta con la marca `…[co
 | `405` | — | Método que no es `POST` ni `OPTIONS` |
 
 Cómo se agrupa (lo hace finance, no el emisor): mismo origen, tipo, mensaje (sin ids, hashes ni
-números) y primer frame del stack (sin el hash del chunk de Vite ni línea y columna) son el mismo
-problema. `huella_manual` reemplaza ese cálculo.
+números) y primer frame del stack son el mismo problema. Del frame se sacan el hash del chunk de
+Vite (también los que traen `-` o `_`), la línea y la columna, y en un chunk hasheado también el
+nombre de función, que el minificador cambia en cada build: el mismo error no se parte en un
+problema por deploy. Sin stack, cuentan sólo origen, tipo y mensaje. `huella_manual` reemplaza ese
+cálculo.
 
 ### Con `curl`
 
@@ -213,47 +216,82 @@ curl -X POST "https://qoyskdjcjyjxcnhruhni.supabase.co/functions/v1/monitor-inge
 ### Desde un cron de la base (`net.http_post`)
 
 El patrón es envolver cada job en una función que ataja el error y avisa, con la clave en el vault
-del cliente:
+del cliente. Es la migración que corre en producción en Mercado Fratelli
+(`20260929130000_monitor_run_job.sql`). Sólo cambian el ejemplo del cron, la referencia al plan de
+Fratelli en el `comment` y un comentario sobre `PT4xx`. Tres decisiones que no son obvias:
+
+- **No re-lanza la excepción.** `net.http_post` encola el pedido en una tabla y un worker lo manda
+  después: si el job re-lanzara, la transacción se revertiría y el aviso con ella. Deja el error en
+  los logs de Postgres con `raise warning`. Consecuencia: en `cron.job_run_details` el job figura
+  `succeeded` aunque haya fallado. La falla se ve en el Monitor.
+- **Sin `monitor_clave` en el vault no manda nada.** La clave se carga a mano por ambiente, nunca en
+  la migración, que es la misma en dev y en prod. Así la migración se puede aplicar antes de que
+  exista la clave.
+- **Sólo pg_cron la llama**: `revoke` para `public`, `anon` y `authenticated`. Es `security definer`.
 
 ```sql
+create extension if not exists pg_net with schema extensions;
+
 create or replace function app.run_job(p_fn text)
 returns void
 language plpgsql
 security definer
+-- Vacío: todo va calificado. Las funciones de los crons fijan su propio `search_path`.
 set search_path = ''
 as $$
 declare
   v_estado text;
   v_mensaje text;
+  v_clave text;
 begin
+  -- El cast a `regproc` valida que la función exista y la escribe bien citada. Adentro del
+  -- bloque a propósito: un nombre mal escrito en el cron también es un cron que falla.
   execute format('select %s()', p_fn::regproc);
 exception when others then
   get stacked diagnostics v_estado = returned_sqlstate, v_mensaje = message_text;
+
   -- PT4xx es un rechazo de negocio, no un incidente.
   if v_estado not like 'PT4%' then
-    perform net.http_post(
-      url := 'https://qoyskdjcjyjxcnhruhni.supabase.co/functions/v1/monitor-ingesta',
-      headers := jsonb_build_object(
-        'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'monitor_clave'),
-        'Content-Type', 'application/json'
-      ),
-      body := jsonb_build_object('eventos', jsonb_build_array(jsonb_build_object(
-        'id_externo', gen_random_uuid(),
-        'origen', 'db',
-        'mensaje', v_mensaje,
-        'codigo', v_estado,
-        'ubicacion', p_fn,
-        'huella_manual', 'cron:' || p_fn
-      )))
-    );
+    select decrypted_secret into v_clave
+    from vault.decrypted_secrets
+    where name = 'monitor_clave';
+
+    if v_clave is not null then
+      perform net.http_post(
+        url := 'https://qoyskdjcjyjxcnhruhni.supabase.co/functions/v1/monitor-ingesta',
+        headers := jsonb_build_object(
+          'Authorization', 'Bearer ' || v_clave,
+          'Content-Type', 'application/json'
+        ),
+        body := jsonb_build_object('eventos', jsonb_build_array(jsonb_build_object(
+          'id_externo', gen_random_uuid(),
+          'origen', 'db',
+          'mensaje', v_mensaje,
+          'codigo', v_estado,
+          'ubicacion', 'cron ' || p_fn,
+          -- Un problema por cron, sea cual sea el mensaje de cada falla.
+          'huella_manual', 'cron:' || p_fn
+        )))
+      );
+    end if;
   end if;
-  -- Sin re-raise: `net.http_post` encola en una tabla, y si la transacción se revierte el
-  -- aviso se revierte con ella.
+
+  raise warning 'app.run_job(%): % (SQLSTATE %)', p_fn, v_mensaje, v_estado;
 end;
 $$;
 
--- select cron.schedule('offers-expire', '*/5 * * * *', $$select app.run_job('app.offers_expire')$$);
+comment on function app.run_job(text) is
+  'Corre la función de un cron y, si falla con algo que no es PT4xx, avisa al Monitor de finance (net.http_post con monitor_clave del vault). No re-lanza: el aviso se revertiría con la transacción.';
+
+-- Sólo pg_cron (corre como postgres) la llama: ni un usuario ni la API.
+revoke all on function app.run_job(text) from public, anon, authenticated;
+
+-- Cada cron pasa por el wrapper. `cron.schedule` con un nombre que ya existe actualiza ese job.
+select cron.schedule('<nombre-del-job>', '0 3 * * *', $$select app.run_job('app.<funcion_del_cron>');$$);
 ```
+
+El esquema `app` tiene que existir y no estar expuesto por la API. La clave va al vault de cada
+ambiente: `select vault.create_secret('<clave>', 'monitor_clave');`.
 
 ## Qué NO hace
 
