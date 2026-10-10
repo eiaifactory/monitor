@@ -1,13 +1,14 @@
 # Plan — SDK `@eiaifactory/monitor` v0.1.0
 
-**Progreso General:** `97%`
+**Progreso General:** `100%`
 
 **Spec:** [`SPEC-MONITOR.md`](https://github.com/eiaifactory/eiaifactory-finance/blob/main/docs/historia/SPEC-MONITOR.md)
 (repo `eiaifactory-finance`, §«El contrato HTTP v1» y §«SDK») · **Plan de finance:**
 [`PLAN-MONITOR.md`](https://github.com/eiaifactory/eiaifactory-finance/blob/main/docs/historia/PLAN-MONITOR.md)
 (este SDK va entre su PR A, ya mergeado, y el piloto de Fratelli) · **Revisado con `/plan-review` el
 2026-09-27** · **Estado:** v0.1.0 publicada en npm el 2026-09-28 y andando en Supabase Edge desde el
-2026-09-29 (piloto de Fratelli en staging); sólo falta que `publish.yml` corra por primera vez
+2026-09-29 (piloto de Fratelli en staging). v0.1.1 publicada por `publish.yml` el 2026-10-10, con
+provenance
 
 ## TLDR
 
@@ -168,7 +169,7 @@ nunca en la URL; sin `sendBeacon`; la huella la calcula el server; el SDK redact
     `debug`). `npm pack --dry-run`: `dist`, README, LICENSE y package.json.
   - [x] 🟩 Mutaciones: 16 cambios de comportamiento aplicados de a uno; los 16 rompen la suite.
 
-- [ ] 🟨 **Paso 6: README y CI**
+- [x] 🟩 **Paso 6: README y CI**
   - [x] 🟩 `README.md` es el contrato, con ejemplos (navegador + React Query + `release` en
     Railway, edge, Node, `curl`, `app.run_job` con `net.http_post`) y qué NO hace. **El SQL de
     `app.run_job` no se ejecutó**: lo valida el piloto de Fratelli.
@@ -180,8 +181,14 @@ nunca en la URL; sin `sendBeacon`; la huella la calcula el server; el SDK redact
     en Fratelli desde el 1-oct. Además suma el `revoke`, el `comment`, `pg_net`, el ejemplo de
     `huella_manual` (`cron:<función>`) y la huella v2 de finance (#99). Sale en la 0.1.1.)*
   - [x] 🟩 `.github/workflows/ci.yml`: en verde en eiaifactory/monitor#1 (mergeado el 2026-09-28).
-  - [ ] 🟨 `.github/workflows/publish.yml` escrito (con chequeo de que el tag coincide con la
+  - [x] 🟩 `.github/workflows/publish.yml` escrito (con chequeo de que el tag coincide con la
     versión); se prueba recién en el paso 8.
+    *(10-oct: la primera corrida, con el tag `v0.1.1`, falló en `npm publish` con un `E404`: el
+    trusted publisher **no estaba creado** en npmjs.com, porque la 0.1.0 se había publicado a mano y
+    nada lo había probado. Mariano lo creó con `eiaifactory/monitor`, `publish.yml`, sin environment
+    y con permiso de `npm publish`. Re-corrida, publicó la 0.1.1 con provenance firmada, y npm la
+    muestra como `latest`, con el README nuevo. El `NODE_AUTH_TOKEN: XXXXX-…` que se ve en el log es
+    el relleno de `setup-node`, no la causa.)*
 
 - [x] 🟩 **Paso 7: Contra finance de verdad** (2026-09-28, clave del ambiente fixture)
   - [x] 🟩 Servidor, en Node con el build: la primera respuesta se «perdió» a propósito y el
@@ -222,3 +229,7 @@ nunca en la URL; sin `sendBeacon`; la huella la calcula el server; el SDK redact
 - `npm audit`: esbuild 0.27.x (dependencia de tsup, sólo desarrollo) tiene un aviso bajo sobre su
   servidor de desarrollo en Windows, que acá no se usa. El arreglo está en 0.28.1 y tsup fija
   `^0.27`: se resuelve cuando tsup suba, o con un `overrides`.
+- **Un test de tiempos inestable en el CI:** «retorna en menos de 1 ms, aun con un error de 1 MB»
+  (`test/browser/regla0.test.ts:39`) dio timeout de 5 s en el runner, en el push a `main` del
+  10-oct. Re-corrido, pasó, y pasa en local y en el PR. Si vuelve a fallar, darle un timeout propio
+  o medir de otra forma.
