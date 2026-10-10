@@ -246,11 +246,16 @@ nunca en la URL; sin `sendBeacon`; la huella la calcula el server; el SDK redact
   con `timeout`. De 6 mutaciones del SDK, los nuevos detectan las 6 y los viejos 2. *Se pierde* la
   cota absoluta: un `capturar` que se vuelva lento sin leer el error ni hacer I/O no lo agarra
   ningún test (el viejo tampoco lo agarraba de forma confiable: medía ruido).
-- **La regex de email de la PII es cuadrática** (sin arreglar: es código del SDK, 0.1.2). `EMAIL`
-  en `src/core/pii.ts` hace backtracking O(n²) sobre una tira de `[A-Za-z0-9._%+-]` sin `@`: un
-  stack de 8 KB así cuesta 44 ms por evento en desktop, en el hilo principal, y como el evento se
-  arma antes de colapsar, una ráfaga de 100 errores iguales bloquea ~4 s. Con la parte local
-  acotada a `{1,64}` (el máximo del RFC 5321) y el dominio a `{1,255}`: 1,8 ms con 8 KB y 13 ms con
-  64 KB (hoy, 3,2 s), con los mismos resultados en los casos probados. Es también lo que hace tardar
-  ~1 s en local y ~2 s en el CI a «lotes de hasta 60 KB…» (`test/browser/envio.test.ts`). Según la
-  cabecera de `pii.ts`, finance usa la misma regla: revisarla también ahí.
+- ~~**La regex de email de la PII es cuadrática**~~ **— arreglada en la 0.1.2, sin publicar.**
+  `EMAIL` en `src/core/pii.ts` hacía backtracking O(n²) sobre una tira de `[A-Za-z0-9._%+-]` sin
+  `@`: un stack de 8 KB así costaba 44 ms por evento en desktop, en el hilo principal, y como el
+  evento se arma antes de colapsar, una ráfaga de 100 errores iguales bloqueaba ~4 s. Ahora la
+  parte local va acotada a `{1,64}`, el máximo del RFC 5321: 1,8 ms con 8 KB, y 256 KB sin `@` en
+  ~60 ms (antes, ~45 s; lo cubre un test de `pii.test.ts` que con la regex vieja da timeout). El
+  dominio quedó sin tope: no hace falta para que sea lineal, y con el `{1,255}` que se había
+  propuesto, un dominio más largo quedaba sin redactar entero. Lo que se resigna: de una parte
+  local de más de 64 (inválida) queda visible el comienzo. «lotes de hasta 60 KB…»
+  (`test/browser/envio.test.ts`) bajó de ~1 s a ~55 ms, y el navegador pesa 4086 B gzip de 4096.
+  **Falta:** publicarla con el tag `v0.1.2` (OK de Mariano), y finance, que corre la misma regex
+  cuadrática en la ingesta (`supabase/functions/_shared/monitor/pii.ts:12`, visto en su `main` el
+  10-oct) y tiene que sumar el mismo caso a su `pii.test.ts`.
