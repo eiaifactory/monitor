@@ -39,6 +39,12 @@ describe('redactarTexto', () => {
     // dos llamadas seguidas no arrastran estado de la regex global
     expect(redactarTexto('tel 1128503180')).toBe(`tel ${REDACTADO}`);
   });
+
+  it('la parte local del email va hasta 64, el máximo del RFC: así es lineal aun con 256 KB sin @', () => {
+    expect(redactarTexto('a'.repeat(64) + '@x.com')).toBe(REDACTADO);
+    const tira = 'm'.repeat(256 * 1024); // con `+`, cuadrática: ~45 s en una PC de desarrollo
+    expect(redactarTexto(tira)).toBe(tira);
+  });
 });
 
 describe('limpiar', () => {

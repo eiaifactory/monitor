@@ -9,7 +9,12 @@ export const REDACTADO = '[redactado]';
 /** Claves de `contexto` cuyo VALOR no se manda nunca, sea lo que sea. */
 const CLAVE_SENSIBLE = /mail|tel|phone|dni|cuit|pass|token|secret|key|clave/i;
 
-const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+/**
+ * La parte local va acotada a 64, el máximo del RFC 5321. Con `+`, una tira larga sin `@` (un
+ * stack minificado, un token) hacía backtracking cuadrático: 44 ms por un stack de 8 KB, en el
+ * hilo principal. Con el tope es lineal; una parte local de más de 64 (inválida) deja su comienzo.
+ */
+const EMAIL = /[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 
 /**
  * Un teléfono: 8 a 15 dígitos, con espacios o guiones sueltos entre medio, y sin letras,
