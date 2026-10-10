@@ -1,5 +1,5 @@
-// Regla 0 del spec: invisible para el usuario final. Capturar no hace red ni storage en el
-// mismo tick, nunca lanza, y un fallo propio no vuelve a entrar al SDK.
+// Regla 0 del spec: invisible para el usuario final. Capturar no lee el error ni hace red ni
+// storage en el mismo tick, nunca lanza, y un fallo propio no vuelve a entrar al SDK.
 
 import { describe, expect, it, vi } from 'vitest';
 import { cargarSdk, fetchMock, iniciado, lotes } from './ayuda';
@@ -14,6 +14,15 @@ function storageEspiado(orden: string[]) {
     key: vi.fn(),
     length: 0,
   };
+}
+
+/** Un error que anota cada propiedad que se le lee: si capturar no lo lee, su tamaño no le cuesta. */
+function errorEspiado(mensaje: string, lecturas: PropertyKey[]): Error {
+  return new Proxy(new Error(mensaje), {
+    get: (e, k) => (lecturas.push(k), Reflect.get(e, k)),
+    has: (e, k) => (lecturas.push(k), Reflect.has(e, k)),
+    ownKeys: (e) => (lecturas.push('ownKeys'), Reflect.ownKeys(e)),
+  });
 }
 
 describe('capturar, en el mismo tick', () => {
@@ -36,28 +45,43 @@ describe('capturar, en el mismo tick', () => {
     expect(orden.indexOf('fetch')).toBeGreaterThan(orden.indexOf('storage'));
   });
 
-  it('retorna en menos de 1 ms, aun con un error de 1 MB', async () => {
-    vi.useRealTimers();
+  // Sin medir milisegundos: en un runner compartido, el «peor de 100» medía al recolector de
+  // basura y al scheduler, no a capturar. Lo que la hace barata es lo que NO hace, y eso se ve.
+  it('no lee el error ni serializa nada, aun con uno de 1 MB: 100 capturas programan un solo setTimeout(0)', async () => {
+    vi.stubGlobal('requestIdleCallback', undefined); // Safari
     const sdk = await iniciado();
-    const enorme = new Error('m'.repeat(1024 * 1024));
-    let peor = 0;
-    for (let i = 0; i < 100; i++) {
-      const t = process.hrtime.bigint();
-      sdk.capturar(i % 2 ? enorme : new Error(`e${i}`));
-      peor = Math.max(peor, Number(process.hrtime.bigint() - t) / 1e6);
-    }
-    expect(peor).toBeLessThan(1);
-    await sdk.flush(); // que no quede un timer real mandando después del test
+    await vi.advanceTimersByTimeAsync(0); // el proceso que programa initMonitor
+    const lecturas: PropertyKey[] = [];
+    const errores = Array.from({ length: 100 }, (_, i) => errorEspiado(i ? `e${i}` : 'm'.repeat(1024 * 1024), lecturas));
+    const timeout = vi.spyOn(globalThis, 'setTimeout');
+    const stringify = vi.spyOn(JSON, 'stringify');
+
+    for (const e of errores) sdk.capturar(e);
+    expect(lecturas).toEqual([]);
+    expect(stringify).not.toHaveBeenCalled();
+    expect(timeout.mock.calls).toEqual([[expect.any(Function), 0]]);
+
+    // El trabajo pesado pasa, pero después: el de 1 MB sale recortado.
+    await vi.advanceTimersByTimeAsync(0);
+    expect(lecturas).toContain('message');
+    await sdk.flush();
+    expect(lotes()[0][0].mensaje).toBe('m'.repeat(1014) + '…[cortado]');
   });
 
-  it('usa requestIdleCallback cuando existe (y setTimeout(0) cuando no, como en Safari)', async () => {
-    const ric = vi.fn((cb: () => void) => setTimeout(cb, 50));
+  it('con requestIdleCallback espera a que el navegador esté ocioso: ningún timer lo procesa antes', async () => {
+    const ociosos: Array<() => void> = [];
+    const ric = vi.fn((cb: () => void) => ociosos.push(cb));
     vi.stubGlobal('requestIdleCallback', ric);
     const sdk = await iniciado();
+    ociosos.shift()!(); // el proceso que programa initMonitor
+
     sdk.capturar(new Error('x'));
-    expect(ric).toHaveBeenCalled();
+    // Con `timeout`, una página que nunca está ociosa no lo posterga para siempre.
+    expect(ric).toHaveBeenLastCalledWith(expect.any(Function), { timeout: expect.any(Number) });
+    await vi.advanceTimersByTimeAsync(10_000);
     expect(localStorage.getItem('eiai_monitor_cola')).toBeNull();
-    await vi.advanceTimersByTimeAsync(50);
+
+    ociosos.shift()!();
     expect(localStorage.getItem('eiai_monitor_cola')).toContain('"mensaje":"x"');
   });
 });
