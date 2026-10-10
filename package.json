@@ -1,6 +1,6 @@
 {
   "name": "@eiaifactory/monitor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Manda los errores de un sistema de cliente al Monitor de EI AI Factory, sin que el usuario final lo note.",
   "license": "MIT",
   "type": "module",
