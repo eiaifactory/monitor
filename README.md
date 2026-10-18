@@ -124,7 +124,8 @@ if (rpc.error) {
 
 `marcarFalla` devuelve la misma respuesta sin tocarla. `withHandler` reporta
 `cobrar: respondió 500 en stock_loss_apply (57014)` con `codigo: '57014'`.
-- El paso es un identificador fijo del código: la RPC, la tabla o el servicio de afuera.
+- El paso es un identificador fijo del código: la RPC, la tabla o el servicio de afuera
+  (`[A-Za-z_][\w.]*`, lo que finance lee del mensaje).
 - El código es un SQLSTATE o un `PGRSTnnn`.
 - Lo que no tenga esa forma se descarta y queda el mensaje de siempre, así nunca viaja un valor.
 - Sin código, `codigo` es el status. Un `PT4xx` queda sólo en el mensaje: el usuario vio un 5xx, y
@@ -152,7 +153,7 @@ Decisión del spec: los rechazos de negocio y los `toast.error` no son incidente
 
 | | Navegador | Servidor |
 |---|---|---|
-| Colapso | El mismo error en el mismo lugar (`ubicacion`) en 10 s viaja una vez, con `repeticiones` | — |
+| Colapso | El mismo error, en el mismo lugar (`ubicacion`) y con el mismo `codigo`, en 10 s viaja una vez, con `repeticiones` | — |
 | Tope | 20 eventos nuevos por minuto (`maxPorMinuto`) | — |
 | Ráfaga | Hasta 100 errores esperando a ser procesados; lo que llega con eso lleno se pierde | — |
 | Cola | 50 (`maxBuffer`) en `localStorage`, hasta 128 KB; descarta lo más viejo | 50 en memoria |

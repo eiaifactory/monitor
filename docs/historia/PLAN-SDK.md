@@ -265,17 +265,20 @@ nunca en la URL; sin `sendBeacon`; la huella la calcula el server; el SDK redact
 Sale de `ANALISIS-MONITOR-FUNCION-QUE-FALLO.md` de finance (§5.5 O6 y §5.8 O7), con el alcance que
 decidió Mariano el 17-oct.
 
-- **`ubicacion` entra en `huellaLocal`.** El 08-oct, 85 respuestas 500 de 12 RPC distintas
-  llegaron como 20 eventos: el mismo 57014 con el mismo frame colapsaba en uno, con el endpoint del
-  primero. Ahora cada endpoint es su propio ítem.
-  - El entry del navegador pasa de 4086 a 4090 B gzip de 4096, medido con el esbuild 0.27.7 del
-    lock. El análisis daba +5 con 0.21.5.
+- **`ubicacion` y `codigo` entran en `huellaLocal`.** El 08-oct, 85 respuestas 500 de 12 RPC
+  distintas llegaron como 20 eventos: el mismo 57014 con el mismo frame colapsaba en uno, con el
+  endpoint del primero. Ahora cada endpoint es su propio ítem, y dos códigos del mismo endpoint
+  también. Es lo que separa la huella v3 de finance: si colapsaran acá, finance recibiría uno solo,
+  con el código del primero.
+  - El entry del navegador pasa de 4086 a 4093 B gzip de 4096, medido con el esbuild 0.27.7 del
+    lock: +4 por `ubicacion` y +3 por `codigo`. El análisis daba +5 sólo con `ubicacion`, con 0.21.5.
+    **Quedan 3 B de margen**: lo próximo que toque el entry dispara D7, la decisión del presupuesto.
   - Lo que quedó en la cola de una carga con la 0.1.2 tiene la huella vieja: no colapsa con lo
     nuevo y sale igual.
 - **`marcarFalla(respuesta, { paso, codigo })`, sólo en `./deno`.** Es una `WeakMap<Response, Falla>`
   que lee `withHandler`, nunca el body ni un header.
-  - El paso se valida con una regex de identificador. El código, con SQLSTATE o `PGRSTnnn`. Lo
-    demás se descarta.
+  - El paso se valida con `^[A-Za-z_][\w.]{0,63}$`, que es lo que finance lee del mensaje. El
+    código, con SQLSTATE o `PGRSTnnn`. Lo demás se descarta.
   - Un `PT4xx` en una 5xx no va en `codigo`: si fuera, `esEsperado` lo descartaría, y en 0.1.2 ese
     5xx se reportaba.
   - En Fratelli la llama `jsonError(…, falla)` de `_shared/http.ts`.

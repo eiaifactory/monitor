@@ -130,7 +130,8 @@ export interface Falla {
  */
 const fallas = new WeakMap<Response, Falla>();
 
-const PASO = /^[A-Za-z][\w./:-]{0,63}$/;
+/** Lo que finance sabe leer del mensaje (`en ([A-Za-z_][\w.]*)`): con un `/` o un `-` lo cortaría. */
+const PASO = /^[A-Za-z_][\w.]{0,63}$/;
 const CODIGO = /^(?:[0-9A-Z]{5}|PGRST\d{3})$/;
 
 /**

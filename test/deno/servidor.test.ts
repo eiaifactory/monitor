@@ -145,6 +145,9 @@ describe('withHandler', () => {
     it('un paso o un código con forma de mensaje se descartan: nunca entra un valor', async () => {
       const raros: Falla[] = [
         { paso: 'invalid input syntax for type uuid: "abc"', codigo: 'duplicate key value' },
+        // Con `/` o `-`, finance leería sólo la primera parte del paso.
+        { paso: 'storage/upload', codigo: '57014x' },
+        { paso: 'stock-loss', codigo: 'pt403' },
         { paso: '', codigo: '5701' },
         { paso: 'x'.repeat(65), codigo: '570144' },
         { paso: 42 as never, codigo: {} as never },

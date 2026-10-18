@@ -30,6 +30,12 @@ describe('huellaLocal', () => {
     expect(huellaLocal(evento({ ...timeout, ubicacion: 'rpc/report_margin_by_rubro' }))).not.toBe(a);
     expect(huellaLocal(evento({ ...timeout }))).toBe(huellaLocal(evento({ ...timeout, ubicacion: undefined })));
   });
+
+  it('el mismo endpoint con otro código es otra huella: finance no las podría separar después', () => {
+    const base = { mensaje: 'stock-loss: respondió 500 en stock_loss_apply', ubicacion: 'stock-loss', stack: undefined };
+    expect(huellaLocal(evento({ ...base, codigo: '57014' }))).not.toBe(huellaLocal(evento({ ...base, codigo: '23505' })));
+    expect(huellaLocal(evento({ ...base, codigo: '57014' }))).toBe(huellaLocal(evento({ ...base, codigo: '57014' })));
+  });
 });
 
 describe('encolar', () => {
