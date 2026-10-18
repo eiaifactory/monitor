@@ -22,6 +22,14 @@ describe('huellaLocal', () => {
     expect(huellaLocal(evento({ stack: 'TypeError: x\n    at Venta (https://app/assets/index-9f2c1a7b.js:1:2)' }))).not.toBe(h);
     expect(huellaLocal(evento({ origen: 'edge' }))).not.toBe(h);
   });
+
+  it('la misma falla en otro endpoint es otra huella; sin ubicacion, la de siempre', () => {
+    const timeout = { mensaje: 'canceling statement due to statement timeout', stack: undefined, tipo_error: 'Error' };
+    const a = huellaLocal(evento({ ...timeout, ubicacion: 'rpc/report_sales_by_day' }));
+    expect(huellaLocal(evento({ ...timeout, ubicacion: 'rpc/report_sales_by_day' }))).toBe(a);
+    expect(huellaLocal(evento({ ...timeout, ubicacion: 'rpc/report_margin_by_rubro' }))).not.toBe(a);
+    expect(huellaLocal(evento({ ...timeout }))).toBe(huellaLocal(evento({ ...timeout, ubicacion: undefined })));
+  });
 });
 
 describe('encolar', () => {
@@ -34,6 +42,18 @@ describe('encolar', () => {
     expect(c.items[0].e.repeticiones).toBe(3);
     expect(encolar(c, evento(), T0 + 10_000, 50, 20)).toBe('encolado');
     expect(c.items).toHaveLength(2);
+  });
+
+  it('una tormenta de 12 RPC con el mismo 57014 da 12 ítems, uno por endpoint', () => {
+    const c = crearCola();
+    for (let i = 0; i < 12; i++) {
+      for (let rep = 0; rep < 3; rep++) {
+        const e = evento({ mensaje: 'canceling statement due to statement timeout', stack: undefined, ubicacion: `rpc/report_${i}` });
+        encolar(c, e, T0 + rep, 50, 20);
+      }
+    }
+    expect(c.items.map((i) => i.e.ubicacion)).toEqual(Array.from({ length: 12 }, (_, i) => `rpc/report_${i}`));
+    expect(c.items.every((i) => i.e.repeticiones === 3)).toBe(true);
   });
 
   it('no colapsa sobre un item en vuelo: esa suma se perdería al llegar el 202', () => {

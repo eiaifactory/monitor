@@ -81,7 +81,7 @@ Instalado, captura solo los errores no manejados (`error`) y las promesas rechaz
 ## Edge functions (Supabase)
 
 ```ts
-import { initMonitor, withHandler } from 'npm:@eiaifactory/monitor@0.1.0/deno';
+import { initMonitor, marcarFalla, withHandler } from 'npm:@eiaifactory/monitor@0.1.3/deno';
 
 const monitor = initMonitor({
   clave: Deno.env.get('MONITOR_CLAVE'),
@@ -109,6 +109,27 @@ respuestas 5xx (como `cobrar: respondió 503`, **sin el cuerpo**: puede traer da
 la función contestando que no, y no se reportan. Lo que se capture a mano con
 `monitor.capturar(error)` durante el request también sale al final.
 
+**Qué paso falló (0.1.3).** Una 5xx que la función arma a mano puede decir en qué paso falló y con
+qué código, sin que el body ni un header lo lleven. El body trae el mensaje crudo de Postgres, y un
+header llegaría al navegador. Va fuera de banda:
+
+```ts
+if (rpc.error) {
+  return marcarFalla(
+    new Response(JSON.stringify({ error: 'db_error' }), { status: 500, headers: corsHeaders }),
+    { paso: 'stock_loss_apply', codigo: rpc.error.code },
+  );
+}
+```
+
+`marcarFalla` devuelve la misma respuesta sin tocarla. `withHandler` reporta
+`cobrar: respondió 500 en stock_loss_apply (57014)` con `codigo: '57014'`.
+- El paso es un identificador fijo del código: la RPC, la tabla o el servicio de afuera.
+- El código es un SQLSTATE o un `PGRSTnnn`.
+- Lo que no tenga esa forma se descarta y queda el mensaje de siempre, así nunca viaja un valor.
+- Sin código, `codigo` es el status. Un `PT4xx` queda sólo en el mensaje: el usuario vio un 5xx, y
+  como `codigo` lo descartaría como rechazo de negocio.
+
 | Opción de `withHandler` | |
 |---|---|
 | `esEsperado(error)` | Además de los esperados de siempre. |
@@ -131,7 +152,7 @@ Decisión del spec: los rechazos de negocio y los `toast.error` no son incidente
 
 | | Navegador | Servidor |
 |---|---|---|
-| Colapso | El mismo error en 10 s viaja una vez, con `repeticiones` | — |
+| Colapso | El mismo error en el mismo lugar (`ubicacion`) en 10 s viaja una vez, con `repeticiones` | — |
 | Tope | 20 eventos nuevos por minuto (`maxPorMinuto`) | — |
 | Ráfaga | Hasta 100 errores esperando a ser procesados; lo que llega con eso lleno se pierde | — |
 | Cola | 50 (`maxBuffer`) en `localStorage`, hasta 128 KB; descarta lo más viejo | 50 en memoria |

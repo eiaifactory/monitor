@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { Evento } from '../../src/core/contrato';
-import { initMonitor, withHandler } from '../../src/deno/index';
+import { initMonitor, marcarFalla, withHandler, type Falla } from '../../src/deno/index';
 
 const URL_PRUEBA = 'https://finance.test/functions/v1/monitor-ingesta';
 const opciones = { clave: 'eiai_mon_dev_' + 'b'.repeat(32), url: URL_PRUEBA, funcion: 'cobrar', release: 'a1b2c3d' };
@@ -99,6 +99,82 @@ describe('withHandler', () => {
     await esperarEnvios();
     expect(lotes()[0][0]).toMatchObject({ mensaje: 'cobrar: respondió 503', codigo: '503', tipo_error: 'HttpError' });
     expect(fetchMock.mock.calls[0][1].body).not.toContain('30111222');
+  });
+
+  describe('marcarFalla: el paso y el código de una 5xx, fuera de banda', () => {
+    const conFalla = async (falla: Falla, status = 500) => {
+      const res = marcarFalla(new Response('{"ok":false,"error":{"code":"db_error","message":"valor \\"30111222\\""}}', { status, headers: { 'x-propio': '1' } }), falla);
+      const handler = withHandler(initMonitor(opciones), async () => res);
+      const devuelta = await handler(req());
+      await esperarEnvios();
+      return { res, devuelta, evento: lotes()[0]?.[0] };
+    };
+
+    it('la respuesta sale idéntica: misma instancia, sin leer el body, mismos headers', async () => {
+      const original = new Response('{"x":1}', { status: 500, headers: { 'x-propio': '1' } });
+      const res = marcarFalla(original, { paso: 'stock_loss_apply', codigo: '57014' });
+      expect(res).toBe(original);
+      const handler = withHandler(initMonitor(opciones), async () => res);
+      const devuelta = await handler(req());
+      expect(devuelta).toBe(original);
+      expect(devuelta.bodyUsed).toBe(false);
+      expect(devuelta.headers.get('x-propio')).toBe('1');
+      const nombres: string[] = [];
+      devuelta.headers.forEach((_v, k) => nombres.push(k));
+      expect(nombres).toEqual(['content-type', 'x-propio']);
+      expect(await devuelta.text()).toBe('{"x":1}');
+    });
+
+    it('el mensaje dice el paso y el código, y `codigo` es el SQLSTATE; nada del body viaja', async () => {
+      const { evento } = await conFalla({ paso: 'stock_loss_apply', codigo: '57014' });
+      expect(evento).toMatchObject({ mensaje: 'cobrar: respondió 500 en stock_loss_apply (57014)', codigo: '57014', tipo_error: 'HttpError', ubicacion: 'cobrar' });
+      expect(fetchMock.mock.calls[0][1].body).not.toContain('30111222');
+      expect(fetchMock.mock.calls[0][1].body).not.toContain('db_error');
+    });
+
+    it('sin código: el paso solo, y `codigo` sigue siendo el status', async () => {
+      const { evento } = await conFalla({ paso: 'anthropic' }, 502);
+      expect(evento).toMatchObject({ mensaje: 'cobrar: respondió 502 en anthropic', codigo: '502' });
+    });
+
+    it('el código de PostgREST también vale', async () => {
+      const { evento } = await conFalla({ paso: 'products_priced', codigo: 'PGRST202' });
+      expect(evento).toMatchObject({ mensaje: 'cobrar: respondió 500 en products_priced (PGRST202)', codigo: 'PGRST202' });
+    });
+
+    it('un paso o un código con forma de mensaje se descartan: nunca entra un valor', async () => {
+      const raros: Falla[] = [
+        { paso: 'invalid input syntax for type uuid: "abc"', codigo: 'duplicate key value' },
+        { paso: '', codigo: '5701' },
+        { paso: 'x'.repeat(65), codigo: '570144' },
+        { paso: 42 as never, codigo: {} as never },
+      ];
+      for (const falla of raros) {
+        fetchMock.mockClear();
+        enEspera = [];
+        const { evento } = await conFalla(falla);
+        expect(evento).toMatchObject({ mensaje: 'cobrar: respondió 500', codigo: '500' });
+      }
+    });
+
+    it('un PT4xx en una 5xx se sigue reportando: el código queda en el mensaje, no en `codigo`', async () => {
+      const { evento } = await conFalla({ paso: 'stock_loss_apply', codigo: 'PT403' });
+      expect(evento).toMatchObject({ mensaje: 'cobrar: respondió 500 en stock_loss_apply (PT403)', codigo: '500' });
+    });
+
+    it('en una 4xx la marca no hace nada: no se reporta', async () => {
+      const res = marcarFalla(new Response('{}', { status: 400 }), { paso: 'stock_loss_apply', codigo: '22023' });
+      await withHandler(initMonitor(opciones), async () => res)(req());
+      await esperarEnvios();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('marcar con basura no lanza y devuelve lo que recibió', () => {
+      for (const raro of [null, undefined, 42, 'x']) {
+        expect(() => marcarFalla(raro as never, { paso: 'x' })).not.toThrow();
+        expect(marcarFalla(raro as never, { paso: 'x' })).toBe(raro);
+      }
+    });
   });
 
   it('una 4xx no se reporta: es la función contestando que no', async () => {

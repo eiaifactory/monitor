@@ -116,6 +116,52 @@ export interface OpcionesHandler {
   aRespuesta?: (error: unknown) => Response;
 }
 
+/** Qué paso de la función falló y con qué código: lo lee `withHandler` al reportar una 5xx. */
+export interface Falla {
+  /** Un identificador fijo del código: la RPC, la tabla o el servicio de afuera. Nunca un valor. */
+  paso: string;
+  /** El SQLSTATE (`57014`) o el código de PostgREST (`PGRST202`). */
+  codigo?: string;
+}
+
+/**
+ * Fuera de banda a propósito: ni el body (trae el mensaje crudo de Postgres y los `issues` de zod)
+ * ni un header (llegaría al navegador). Débil: la respuesta se libera sola.
+ */
+const fallas = new WeakMap<Response, Falla>();
+
+const PASO = /^[A-Za-z][\w./:-]{0,63}$/;
+const CODIGO = /^(?:[0-9A-Z]{5}|PGRST\d{3})$/;
+
+/**
+ * Anota en qué paso falló una respuesta 5xx, sin tocarla: devuelve la misma instancia, con el mismo
+ * body y los mismos headers. Lo que no tiene forma de identificador o de código se descarta al
+ * reportar. Nunca lanza.
+ */
+export function marcarFalla(respuesta: Response, falla: Falla): Response {
+  try {
+    fallas.set(respuesta, falla);
+  } catch {
+    // Regla 0: una respuesta rara no rompe a la función
+  }
+  return respuesta;
+}
+
+/** «stock-loss: respondió 500 en stock_loss_apply (57014)», con lo que pase la validación. */
+function http5xx(funcion: string, res: Response): Record<string, unknown> {
+  const f = fallas.get(res);
+  const paso = typeof f?.paso === 'string' && PASO.test(f.paso) ? f.paso : undefined;
+  const codigo = typeof f?.codigo === 'string' && CODIGO.test(f.codigo) ? f.codigo : undefined;
+  return {
+    name: 'HttpError',
+    message: `${funcion}: respondió ${res.status}${paso ? ` en ${paso}` : ''}${codigo ? ` (${codigo})` : ''}`,
+    status: res.status,
+    // Sin SQLSTATE, el código es el status. Un PT4xx queda sólo en el mensaje: el usuario vio un
+    // 5xx, y `esEsperado` lo descartaría como rechazo de negocio.
+    code: codigo && !codigo.startsWith('PT4') ? codigo : undefined,
+  };
+}
+
 interface EdgeRuntimeGlobal {
   EdgeRuntime?: { waitUntil(p: Promise<unknown>): void };
 }
@@ -152,7 +198,8 @@ function respuestaDeError(error: unknown, opciones: OpcionesHandler): Response {
 
 /**
  * Envuelve el handler de `Deno.serve`. Si responde, devuelve esa respuesta tal cual y reporta
- * las 5xx (sin el cuerpo: puede traer datos). Si lanza, lo reporta y devuelve `aRespuesta(error)`
+ * las 5xx (sin el cuerpo: puede traer datos), con el paso de `marcarFalla` si lo tiene. Si lanza,
+ * lo reporta y devuelve `aRespuesta(error)`
  * o un 500 JSON. Al final manda todo lo capturado en el request, también lo que la función
  * capturó a mano antes de contestar un 200.
  */
@@ -165,10 +212,11 @@ export function withHandler<A extends unknown[]>(
     try {
       const res = await handler(req, ...args);
       if (res.status >= 500) {
-        monitor.capturar(
-          { name: 'HttpError', message: `${monitor.funcion}: respondió ${res.status}`, status: res.status },
-          { ruta: rutaDe(req) },
-        );
+        try {
+          monitor.capturar(http5xx(monitor.funcion, res), { ruta: rutaDe(req) });
+        } catch {
+          // Regla 0: reportar nunca cambia la respuesta de la función
+        }
       }
       return res;
     } catch (error) {
