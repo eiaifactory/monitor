@@ -15,8 +15,14 @@ function fnv1a(s: string): number {
   return h >>> 0;
 }
 
-/** Origen + tipo + mensaje + la primera línea de stack que es un frame (`at …` o `f@…`). */
+/**
+ * Origen + tipo + mensaje + la primera línea de stack que es un frame (`at …` o `f@…`) +
+ * `ubicacion` + `codigo`, lo mismo que separa la huella v3 de finance. Sin la `ubicacion`, el mismo
+ * timeout de 12 RPC distintas salía como UN evento con el endpoint de la primera; sin el `codigo`,
+ * dos fallas del mismo endpoint con códigos distintos salían como una, con el código de la primera,
+ * y finance ya no las puede separar.
+ */
 export function huellaLocal(e: Evento): number {
   const frame = (e.stack ?? '').split('\n').find((l) => /^\s*at\s|@/.test(l)) ?? '';
-  return fnv1a([e.origen, e.tipo_error ?? '', e.mensaje, frame.trim()].join('|'));
+  return fnv1a([e.origen, e.tipo_error ?? '', e.mensaje, frame.trim(), e.ubicacion ?? '', e.codigo ?? ''].join('|'));
 }
