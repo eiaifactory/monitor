@@ -282,3 +282,38 @@ decidió Mariano el 17-oct.
   - Un `PT4xx` en una 5xx no va en `codigo`: si fuera, `esEsperado` lo descartaría, y en 0.1.2 ese
     5xx se reportaba.
   - En Fratelli la llama `jsonError(…, falla)` de `_shared/http.ts`.
+
+## Paquete H (20-oct-2026): no hubo 0.1.4
+
+El paquete H del plan de seguridad del 20-oct (finance, `docs/historia/SPEC-MONITOR-ENDURECIMIENTO.md`)
+pedía dos cambios también en el SDK:
+- la ruta y el stack con `:id` en vez de uuids y números de 4+ dígitos (`src/core/normalizar.ts:83`);
+- un filtro más estricto de las claves de `contexto` (`src/core/pii.ts:10`).
+
+**Ninguno entra en el presupuesto.** Se midieron sobre el `dist/browser.js` real de la 0.1.3 (4093 B
+gzip, con el mismo `gzipSync` nivel 9 de `scripts/tamano.mjs`, tope 4096):
+
+| Cambio | Bytes gzip |
+|---|---|
+| Ruta con `:id` | +43 B |
+| Regex de claves ampliada | +37 B |
+| Los dos juntos | +78 B |
+
+Por instrucción de Mariano («si no entra, sólo en finance»), los dos quedaron sólo en la segunda línea
+(`supabase/functions/_shared/monitor/`): es la que decide qué se guarda, y ahí la lista de claves
+quedó **cerrada**. Lo que se pierde: el id y la clave no permitida salen del dispositivo, y finance los
+tira al llegar. D7 (el presupuesto del entry) no se tocó. El README del SDK cuenta el contrato tal como
+lo aplica finance.
+
+### Pendiente para la próxima versión: `procesar()`
+
+Pedido de la sesión madre del Monitor, para anotarlo y no implementarlo salvo pedido de Mariano:
+- **Optimizar `procesar()`:**
+  - un `TextEncoder` de módulo;
+  - una cota barata antes de codificar el contexto;
+  - colapsar antes de armar el evento;
+  - y, si hace falta, fraccionar `procesar()`.
+- **Va junto con D7**, la decisión sobre el presupuesto del entry, que hoy tiene 3 B de margen.
+- **El motivo (20-oct-2026):** la tormenta E100 a 10x da 52,0 ms en dev, y 54,0 ms con `contexto.accion`
+  (O1), contra un corte de 50 ms. Mariano aceptó O1 con el criterio de cuánto suma contra la línea de base
+  (+2,0 ms, +3,8 %) y pidió dejar anotada la optimización.

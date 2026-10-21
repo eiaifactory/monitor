@@ -72,7 +72,7 @@ Instalado, captura solo los errores no manejados (`error`) y las promesas rechaz
 |---|---|
 | `initMonitor({ clave, url?, release?, ignorar?, maxBuffer?, maxPorMinuto?, debug? })` | Instala los listeners. Una sola vez por página; las siguientes se ignoran. |
 | `capturar(error, { ruta?, ubicacion?, contexto? })` | Reporta un error atajado a mano (el `catch` de un flujo que igual querés ver). |
-| `setContext({ clave: valor })` | Suma datos a los próximos eventos (`sucursal`, `terminal`…). Sólo escalares; `undefined` saca la clave. |
+| `setContext({ clave: valor })` | Suma datos a los próximos eventos. Sólo escalares; `undefined` saca la clave. Finance guarda sólo las claves de su lista cerrada (`http`, `paso`, `accion`, `prueba`): otra clave viaja y se descarta al llegar. |
 | `setUsuario({ id, rol? })` / `limpiarUsuario()` | Quién estaba usando el sistema. |
 | `onErrorQuery` / `onErrorMutation` | Para `QueryCache` / `MutationCache`. De la key se manda sólo el primer elemento si es texto (el nombre de la consulta), como `ubicacion`: el resto puede traer ids o filtros. |
 | `esEsperado(error)` | La misma regla que usa el SDK para no reportar (ver abajo). |
@@ -173,6 +173,15 @@ sensibles (`mail`, `tel`, `phone`, `dni`, `cuit`, `pass`, `token`, `secret`, `ke
 reemplazan por `[redactado]`; emails y teléfonos se redactan en el mensaje, el stack, la ruta y
 el contexto; la ruta viaja sin query ni hash; un `usuario_id` con `@` se redacta.
 
+La segunda línea, en finance, es más estricta que esta (desde el 20-oct-2026), y es la que decide
+qué se guarda:
+- del `contexto` guarda sólo su lista cerrada de claves;
+- en la ruta y el stack cambia por `:id` los uuid y los segmentos de 4+ dígitos (`/clientes/12345`);
+- una `ocurrido_at` fuera de `[llegada − 7 días, llegada + 5 min]` se reemplaza por la hora de llegada.
+
+El SDK no lo hace todavía: no entra en el presupuesto de 4 KB del navegador (ver
+`docs/historia/PLAN-SDK.md`).
+
 ## El contrato HTTP v1
 
 Congelado: cambiarlo es versionar (`/v2`), no editar.
@@ -191,18 +200,18 @@ rechazan uno por uno con `lote_excedido`) y **hasta 64 KB** (si no, `413` y se r
 | `id_externo` | uuid | sí | — | Idempotencia: repetido cuenta como `duplicados`, no suma |
 | `origen` | `browser` · `edge` · `servidor` · `db` · `ci` · `deploy` | sí | — | `latido` es reservado de finance |
 | `mensaje` | string | sí | 1024 | Se recorta, no se rechaza |
-| `ocurrido_at` | ISO-8601 | no | — | Default: cuándo llegó |
+| `ocurrido_at` | ISO-8601 | no | — | Default: cuándo llegó. Fuera de `[llegada − 7 d, llegada + 5 min]`, también cuándo llegó, y la recibida queda en `contexto._ocurrido_fuera_de_rango` |
 | `tipo_error` | string | no | 128 | `TypeError`, `PostgrestError`, `XX000`… |
 | `codigo` | string | no | 64 | SQLSTATE, status HTTP, code de PostgREST |
 | `stack` | string | no | 8192 | Crudo |
 | `ubicacion` | string | no | 256 | Función edge, nombre del cron, consulta |
-| `ruta` | string | no | 512 | `pathname`, sin query |
+| `ruta` | string | no | 512 | `pathname`, sin query. Uuids y segmentos de 4+ dígitos se guardan como `:id` |
 | `release` | string | no | 64 | Sha corto del build |
 | `usuario_id` | string | no | 64 | Id opaco; con `@` se redacta |
 | `rol` | string | no | 64 | |
 | `dispositivo_id` | string | no | 64 | Uuid del dispositivo |
 | `user_agent` | string | no | 512 | |
-| `contexto` | objeto plano de escalares | no | 2 KB | Claves sensibles → `[redactado]` |
+| `contexto` | objeto plano de escalares | no | 2 KB | Se guardan sólo `http` (entero 0-599), `paso`, `accion` (una etiqueta sin dígitos, `@` ni `:`), `prueba` y `_cortado`. Lo demás se descarta y se cuenta en `_descartadas` |
 | `repeticiones` | entero ≥ 1 | no | — | Colapso local. Default 1 |
 | `huella_manual` | string | no | 128 | Reemplaza la agrupación calculada (`cron:<función>`, como hace `app.run_job`) |
 
