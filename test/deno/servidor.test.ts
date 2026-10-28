@@ -142,12 +142,30 @@ describe('withHandler', () => {
       expect(evento).toMatchObject({ mensaje: 'cobrar: respondió 500 en products_priced (PGRST202)', codigo: 'PGRST202' });
     });
 
+    it('un texto fijo del programa también vale como código (0.1.4): `codigo` es el texto, no el status', async () => {
+      for (const codigo of ['timeout', 'anthropic_status_529', 'a'.repeat(64)]) {
+        fetchMock.mockClear();
+        enEspera = [];
+        const { evento } = await conFalla({ paso: 'anthropic', codigo }, 502);
+        expect(evento).toMatchObject({ mensaje: `cobrar: respondió 502 en anthropic (${codigo})`, codigo });
+      }
+    });
+
+    it('un código fuera de la regla se descarta y el paso queda: mayúscula, guión, primer carácter raro o más de 64', async () => {
+      for (const codigo of ['Timeout', '_x', '1timeout', 'no-tool-use', 'a'.repeat(65)]) {
+        fetchMock.mockClear();
+        enEspera = [];
+        const { evento } = await conFalla({ paso: 'anthropic', codigo }, 502);
+        expect(evento).toMatchObject({ mensaje: 'cobrar: respondió 502 en anthropic', codigo: '502' });
+      }
+    });
+
     it('un paso o un código con forma de mensaje se descartan: nunca entra un valor', async () => {
       const raros: Falla[] = [
         { paso: 'invalid input syntax for type uuid: "abc"', codigo: 'duplicate key value' },
         // Con `/` o `-`, finance leería sólo la primera parte del paso.
         { paso: 'storage/upload', codigo: '57014x' },
-        { paso: 'stock-loss', codigo: 'pt403' },
+        { paso: 'stock-loss', codigo: 'no-tool-use' },
         { paso: '', codigo: '5701' },
         { paso: 'x'.repeat(65), codigo: '570144' },
         { paso: 42 as never, codigo: {} as never },

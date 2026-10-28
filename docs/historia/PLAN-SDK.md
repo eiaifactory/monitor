@@ -317,3 +317,25 @@ Pedido de la sesión madre del Monitor, para anotarlo y no implementarlo salvo p
 - **El motivo (20-oct-2026):** la tormenta E100 a 10x da 52,0 ms en dev, y 54,0 ms con `contexto.accion`
   (O1), contra un corte de 50 ms. Mariano aceptó O1 con el criterio de cuánto suma contra la línea de base
   (+2,0 ms, +3,8 %) y pidió dejar anotada la optimización.
+
+## 0.1.4 — el código puede ser un texto del programa (28-oct-2026)
+
+Sale de `docs/historia/PLAN-MONITOR-CODIGO-TEXTO.md` de finance. No es el paquete H: aquel no entró.
+
+- **`CODIGO` acepta también `[a-z][a-z0-9_]{0,63}`.** Cuando la IA no contesta, una edge de Fratelli
+  (eiaifactory/sistema-mercado-fratelli#578) marca `{ paso: 'anthropic', codigo: 'timeout' }`. La 0.1.3
+  lo tiraba sin avisar: el aviso llegaba como «respondió 502 en anthropic», con `codigo: '502'`, y
+  todas las causas caían en el mismo problema de la bandeja.
+  - Lo decidió Mariano: ampliar la regla una sola vez, así una causa nueva en cualquier cliente es
+    sólo un texto nuevo en su código.
+  - No abre un hueco: todo lo que cumple la regla nueva ya cumple la del paso, que viaja en el mensaje
+    desde la 0.1.3 (primera letra dentro de `[A-Za-z_]`, el resto dentro de `[\w.]`, el mismo tope).
+    Lo que no puede frenar, un `codigo: variable` con un dato con forma de identificador, es el mismo
+    riesgo del paso: lo dicen el README y el comentario de `Falla.codigo`.
+  - Un `pt403` en minúscula ahora es válido. El test que lo usaba como inválido pasa a `no-tool-use`.
+    `esEsperado` sólo descarta los `PT4` en mayúscula, así que esa 5xx se sigue reportando.
+- **Finance va primero.** Lee el formato nuevo desde el 28-oct (eiaifactory/eiaifactory-finance#132).
+  Si el SDK hubiera salido antes, la tarjeta diría «Error no reconocido · HttpError».
+- **Sólo cambia `./deno`.** `dist/browser.js` sale idéntico al de la 0.1.3, y el presupuesto del entry
+  (3 B de margen) no se toca.
+- **Siguen pendientes** la optimización de `procesar()` y D7, de la sección anterior.
