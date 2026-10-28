@@ -81,7 +81,7 @@ Instalado, captura solo los errores no manejados (`error`) y las promesas rechaz
 ## Edge functions (Supabase)
 
 ```ts
-import { initMonitor, marcarFalla, withHandler } from 'npm:@eiaifactory/monitor@0.1.3/deno';
+import { initMonitor, marcarFalla, withHandler } from 'npm:@eiaifactory/monitor@0.1.4/deno';
 
 const monitor = initMonitor({
   clave: Deno.env.get('MONITOR_CLAVE'),
@@ -126,7 +126,15 @@ if (rpc.error) {
 `cobrar: respondió 500 en stock_loss_apply (57014)` con `codigo: '57014'`.
 - El paso es un identificador fijo del código: la RPC, la tabla o el servicio de afuera
   (`[A-Za-z_][\w.]*`, lo que finance lee del mensaje).
-- El código es un SQLSTATE o un `PGRSTnnn`.
+- El código es un SQLSTATE o un `PGRSTnnn` que devolvió la base, o (desde la 0.1.4) un texto fijo
+  del programa en minúscula: `[a-z][a-z0-9_]{0,63}`, como `timeout` o `anthropic_status_529`. Va
+  escrito en el código o sale de una lista cerrada, **nunca** de algo que escribió una persona:
+  la forma no deja pasar un email ni una frase, pero sí un `juan_perez`.
+
+  ```ts
+  return marcarFalla(respuesta502, { paso: 'anthropic', codigo: 'timeout' });
+  // → «cobrar: respondió 502 en anthropic (timeout)», con codigo: 'timeout'
+  ```
 - Lo que no tenga esa forma se descarta y queda el mensaje de siempre, así nunca viaja un valor.
 - Sin código, `codigo` es el status. Un `PT4xx` queda sólo en el mensaje: el usuario vio un 5xx, y
   como `codigo` lo descartaría como rechazo de negocio.
@@ -202,7 +210,7 @@ rechazan uno por uno con `lote_excedido`) y **hasta 64 KB** (si no, `413` y se r
 | `mensaje` | string | sí | 1024 | Se recorta, no se rechaza |
 | `ocurrido_at` | ISO-8601 | no | — | Default: cuándo llegó. Fuera de `[llegada − 7 d, llegada + 5 min]`, también cuándo llegó, y la recibida queda en `contexto._ocurrido_fuera_de_rango` |
 | `tipo_error` | string | no | 128 | `TypeError`, `PostgrestError`, `XX000`… |
-| `codigo` | string | no | 64 | SQLSTATE, status HTTP, code de PostgREST |
+| `codigo` | string | no | 64 | SQLSTATE, status HTTP, code de PostgREST, o un texto fijo del programa (`timeout`) |
 | `stack` | string | no | 8192 | Crudo |
 | `ubicacion` | string | no | 256 | Función edge, nombre del cron, consulta |
 | `ruta` | string | no | 512 | `pathname`, sin query. Uuids y segmentos de 4+ dígitos se guardan como `:id` |

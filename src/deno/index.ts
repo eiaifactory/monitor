@@ -120,7 +120,10 @@ export interface OpcionesHandler {
 export interface Falla {
   /** Un identificador fijo del código: la RPC, la tabla o el servicio de afuera. Nunca un valor. */
   paso: string;
-  /** El SQLSTATE (`57014`) o el código de PostgREST (`PGRST202`). */
+  /**
+   * El SQLSTATE (`57014`) o el `PGRSTnnn` que devolvió la base, o un texto fijo del programa en
+   * minúscula (`timeout`, `anthropic_status_529`). Nunca algo que escribió una persona.
+   */
   codigo?: string;
 }
 
@@ -132,7 +135,11 @@ const fallas = new WeakMap<Response, Falla>();
 
 /** Lo que finance sabe leer del mensaje (`en ([A-Za-z_][\w.]*)`): con un `/` o un `-` lo cortaría. */
 const PASO = /^[A-Za-z_][\w.]{0,63}$/;
-const CODIGO = /^(?:[0-9A-Z]{5}|PGRST\d{3})$/;
+/**
+ * El texto en minúscula (0.1.4) no deja pasar nada que el paso no acepte ya: sin espacios, `@`,
+ * puntos ni guiones, y no empieza con un dígito. Finance lee la misma regla del mensaje.
+ */
+const CODIGO = /^(?:[0-9A-Z]{5}|PGRST\d{3}|[a-z][a-z0-9_]{0,63})$/;
 
 /**
  * Anota en qué paso falló una respuesta 5xx, sin tocarla: devuelve la misma instancia, con el mismo
