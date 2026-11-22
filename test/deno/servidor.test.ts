@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { Evento } from '../../src/core/contrato';
-import { initMonitor, marcarFalla, withHandler, type Falla } from '../../src/deno/index';
+import { initMonitor, marcarFalla, reportarTercero, withHandler, type Falla, type FallaDeTercero } from '../../src/deno/index';
 
 const URL_PRUEBA = 'https://finance.test/functions/v1/monitor-ingesta';
 const opciones = { clave: 'eiai_mon_dev_' + 'b'.repeat(32), url: URL_PRUEBA, funcion: 'cobrar', release: 'a1b2c3d' };
@@ -198,6 +198,98 @@ describe('withHandler', () => {
     });
   });
 
+  describe('0.1.5: la falla de un tercero y el último intento', () => {
+    const conFalla = async (falla: Falla, status = 502) => {
+      const res = marcarFalla(new Response('{"ok":false,"detalle":"balances_503 30111222"}', { status, headers: { 'x-propio': '1' } }), falla);
+      const handler = withHandler(initMonitor(opciones), async () => res);
+      const devuelta = await handler(req());
+      await esperarEnvios();
+      return { res, devuelta, evento: lotes()[0]?.[0] };
+    };
+
+    it('con `tercero`: el código es lo que devolvió el servicio y el servicio va en contexto.tercero', async () => {
+      const { evento } = await conFalla({ paso: 'interbanking', codigo: 'http_503', tercero: 'interbanking' });
+      expect(evento).toMatchObject({
+        mensaje: 'cobrar: respondió 502 en interbanking (http_503)',
+        codigo: 'http_503',
+        tipo_error: 'HttpError',
+        ubicacion: 'cobrar',
+        contexto: { tercero: 'interbanking' },
+      });
+      expect(fetchMock.mock.calls[0][1].body).not.toContain('30111222');
+    });
+
+    it('todo el vocabulario de finance viaja tal cual como código', async () => {
+      for (const codigo of ['http_500', 'http_599', 'http_429', 'timeout', 'red', 'servidor', 'http_401']) {
+        fetchMock.mockClear();
+        enEspera = [];
+        const { evento } = await conFalla({ paso: 'flete47', codigo, tercero: 'flete47' });
+        expect(evento).toMatchObject({ codigo, contexto: { tercero: 'flete47' } });
+      }
+    });
+
+    it('con `final: false` no se reporta, y la respuesta sale idéntica y sin leer', async () => {
+      const { res, devuelta } = await conFalla({ paso: 'interbanking', codigo: 'timeout', tercero: 'interbanking', final: false });
+      expect(devuelta).toBe(res);
+      expect(devuelta.bodyUsed).toBe(false);
+      expect(devuelta.status).toBe(502);
+      expect(devuelta.headers.get('x-propio')).toBe('1');
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('`final: false` también vale sin `tercero`: lo decide quien reintenta', async () => {
+      await conFalla({ paso: 'saldos_guardar', codigo: '57014', final: false }, 500);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('`final: true`, sin `final` o con algo que no es `false`: se reporta (nunca se pierde)', async () => {
+      for (const final of [true, undefined, 'false', 0, null]) {
+        fetchMock.mockClear();
+        enEspera = [];
+        const { evento } = await conFalla({ paso: 'interbanking', codigo: 'timeout', tercero: 'interbanking', final: final as never });
+        expect(evento).toMatchObject({ codigo: 'timeout', contexto: { tercero: 'interbanking' } });
+      }
+    });
+
+    it('un `tercero` sin la forma del paso no viaja, y el evento sale igual (entra como error)', async () => {
+      for (const tercero of ['inter-banking', 'Inter banking', 'ana@banco.com', '', 'x'.repeat(65), 42, {}]) {
+        fetchMock.mockClear();
+        enEspera = [];
+        const { evento } = await conFalla({ paso: 'interbanking', codigo: 'http_503', tercero: tercero as never });
+        expect(evento).toMatchObject({ mensaje: 'cobrar: respondió 502 en interbanking (http_503)', codigo: 'http_503' });
+        expect(evento.contexto).toBeUndefined();
+      }
+    });
+
+    it('con `tercero` y sin código, `codigo` sigue siendo nuestro status: finance lo deja como error', async () => {
+      const { evento } = await conFalla({ paso: 'interbanking', tercero: 'interbanking' });
+      expect(evento).toMatchObject({ mensaje: 'cobrar: respondió 502 en interbanking', codigo: '502', contexto: { tercero: 'interbanking' } });
+    });
+
+    it('una marca de la 0.1.4 (sólo paso y código) sale igual que antes: sin contexto', async () => {
+      const { evento } = await conFalla({ paso: 'stock_loss_apply', codigo: '57014' }, 500);
+      expect(evento).toMatchObject({ mensaje: 'cobrar: respondió 500 en stock_loss_apply (57014)', codigo: '57014' });
+      expect(evento.contexto).toBeUndefined();
+      expect(Object.keys(evento).sort()).toEqual(
+        ['codigo', 'id_externo', 'mensaje', 'ocurrido_at', 'origen', 'release', 'repeticiones', 'ruta', 'tipo_error', 'ubicacion'],
+      );
+    });
+
+    it('en una 4xx, `tercero` no hace nada: lo que no es 5xx va por reportarTercero', async () => {
+      const res = marcarFalla(new Response('{}', { status: 429 }), { paso: 'interbanking', codigo: 'http_429', tercero: 'interbanking' });
+      await withHandler(initMonitor(opciones), async () => res)(req());
+      await esperarEnvios();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('una marca con un getter que lanza no rompe la respuesta', async () => {
+      const falla = { paso: 'x', get final(): boolean { throw new Error('bug del cliente'); } } as Falla;
+      const original = new Response('{}', { status: 502 });
+      const devuelta = await withHandler(initMonitor(opciones), async () => marcarFalla(original, falla))(req());
+      expect(devuelta).toBe(original);
+    });
+  });
+
   it('una 4xx no se reporta: es la función contestando que no', async () => {
     const handler = withHandler(initMonitor(opciones), async () => new Response('{}', { status: 422 }));
     await handler(req());
@@ -328,5 +420,96 @@ describe('flush de servidor', () => {
     monitor.capturar(new Error('x'));
     await Promise.all([monitor.flush(), monitor.flush(), monitor.flush()]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('reportarTercero (0.1.5)', () => {
+  const reportar = async (falla: FallaDeTercero) => {
+    const monitor = initMonitor(opciones);
+    reportarTercero(monitor, falla);
+    await monitor.flush();
+    return lotes()[0]?.[0];
+  };
+
+  it('un 401 del servicio llega: sin `status`, esEsperado no lo descarta (es nuestro: una credencial)', async () => {
+    const evento = await reportar({ servicio: 'interbanking', codigo: 'http_401', paso: 'token' });
+    expect(evento).toMatchObject({
+      origen: 'edge',
+      mensaje: 'cobrar: interbanking falló en token (http_401)',
+      tipo_error: 'TerceroError',
+      codigo: 'http_401',
+      ubicacion: 'cobrar',
+      release: 'a1b2c3d',
+      contexto: { tercero: 'interbanking' },
+    });
+    expect(fetchMock.mock.calls[0][1].body).not.toMatch(/"status"/);
+  });
+
+  it('el 429 que frena el día, y el resto del vocabulario, llegan con el código como texto', async () => {
+    for (const codigo of ['http_429', 'http_403', 'timeout', 'red', 'servidor', 'http_503']) {
+      fetchMock.mockClear();
+      const evento = await reportar({ servicio: 'interbanking', codigo, paso: 'saldos' });
+      expect(evento).toMatchObject({ codigo, mensaje: `cobrar: interbanking falló en saldos (${codigo})`, contexto: { tercero: 'interbanking' } });
+    }
+  });
+
+  it('sin paso: el mensaje dice sólo el servicio y el código', async () => {
+    const evento = await reportar({ servicio: 'flete47', codigo: 'timeout' });
+    expect(evento).toMatchObject({ mensaje: 'cobrar: flete47 falló (timeout)', codigo: 'timeout' });
+  });
+
+  it('con `final: false` no manda nada; con true, sin final o con otra cosa, sí', async () => {
+    const monitor = initMonitor(opciones);
+    reportarTercero(monitor, { servicio: 'interbanking', codigo: 'http_503', final: false });
+    await monitor.flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+    for (const final of [true, undefined, 'false', 0]) {
+      fetchMock.mockClear();
+      expect(await reportar({ servicio: 'interbanking', codigo: 'http_503', final: final as never })).toMatchObject({ codigo: 'http_503' });
+    }
+  });
+
+  it('un código sin forma no viaja (ni un status numérico), y el evento sale igual', async () => {
+    for (const codigo of ['429', 'HTTP_503', 'no-tool-use', 'ana@banco.com', '', 42 as never]) {
+      fetchMock.mockClear();
+      const evento = await reportar({ servicio: 'interbanking', codigo, paso: 'saldos' });
+      expect(evento).toMatchObject({ mensaje: 'cobrar: interbanking falló en saldos', tipo_error: 'TerceroError', contexto: { tercero: 'interbanking' } });
+      expect(evento.codigo).toBeUndefined();
+    }
+  });
+
+  it('un servicio o un paso sin forma no viajan: sin contexto.tercero entra como error, y se ve igual', async () => {
+    const evento = await reportar({ servicio: 'Inter banking', codigo: 'http_429', paso: 'storage/upload' });
+    expect(evento).toMatchObject({ mensaje: 'cobrar: un servicio de afuera falló (http_429)', codigo: 'http_429' });
+    expect(evento.contexto).toBeUndefined();
+  });
+
+  it('un PT4xx queda sólo en el mensaje: en `codigo` lo descartaría esEsperado', async () => {
+    const evento = await reportar({ servicio: 'interbanking', codigo: 'PT402', paso: 'saldos' });
+    expect(evento).toMatchObject({ mensaje: 'cobrar: interbanking falló en saldos (PT402)', contexto: { tercero: 'interbanking' } });
+    expect(evento.codigo).toBeUndefined();
+  });
+
+  it('dentro de withHandler sale al terminar el request, aunque la función conteste 200', async () => {
+    const monitor = initMonitor(opciones);
+    const handler = withHandler(monitor, async () => {
+      reportarTercero(monitor, { servicio: 'interbanking', codigo: 'http_429', paso: 'saldos' });
+      return new Response('{"frenar":true}', { status: 200 });
+    });
+    expect((await handler(req())).status).toBe(200);
+    await esperarEnvios();
+    expect(lotes()[0][0]).toMatchObject({ codigo: 'http_429', contexto: { tercero: 'interbanking' } });
+  });
+
+  it('sin clave no hace nada; con basura no lanza', async () => {
+    const sinClave = initMonitor({ ...opciones, clave: undefined });
+    reportarTercero(sinClave, { servicio: 'interbanking', codigo: 'http_503' });
+    await sinClave.flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+    const monitor = initMonitor(opciones);
+    for (const raro of [null, undefined, 42, 'x', { get servicio(): string { throw new Error('x'); } }]) {
+      expect(() => reportarTercero(monitor, raro as never)).not.toThrow();
+    }
+    expect(() => reportarTercero(null as never, { servicio: 'interbanking', codigo: 'red' })).not.toThrow();
   });
 });
