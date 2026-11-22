@@ -339,3 +339,36 @@ Sale de `docs/historia/PLAN-MONITOR-CODIGO-TEXTO.md` de finance. No es el paquet
 - **Sólo cambia `./deno`.** `dist/browser.js` sale idéntico al de la 0.1.3, y el presupuesto del entry
   (3 B de margen) no se toca.
 - **Siguen pendientes** la optimización de `procesar()` y D7, de la sección anterior.
+
+## 0.1.5 — la falla de un tercero y el último intento (22-nov-2026)
+
+Sale del paso 6 de `docs/historia/PLAN-MONITOR-TERCEROS.md` de finance (spec:
+`SPEC-MONITOR-TERCEROS.md`). Finance ya acepta la marca: la clave de contexto `tercero`, la lista de
+servicios y el vocabulario de códigos están en producción desde el 21/22-nov (eiaifactory/eiaifactory-finance#191 y #194).
+
+- **`Falla` suma `tercero` y `final`.**
+  - `tercero` es el servicio de afuera y viaja como `contexto.tercero`. Se valida con la regla del paso
+    (`PASO`); si no la cumple, no viaja y el evento sale igual, como error.
+  - Con `final: false`, `withHandler` devuelve la respuesta igual y **no la reporta**: el que reintenta
+    va a volver a pedir. Sólo `false` apaga el reporte; sin `final`, o con cualquier otra cosa, se
+    reporta. Vale para cualquier 5xx marcada, no sólo las de un tercero: lo decide quien reintenta.
+  - En una 4xx, `tercero` no hace nada, como el resto de la marca.
+- **`reportarTercero(monitor, { servicio, codigo, paso?, final? })`** para lo que `withHandler` no ve:
+  el 429 que frena el día y se contesta 200, un 401/403 del servicio. Captura un error **sin `status`**
+  (`name: 'TerceroError'`, `code` = el código): así `esEsperado` (`src/core/esperado.ts:20-21`) no
+  descarta el 401/403, que finance deja como error de credencial. El mensaje es
+  «<función>: <servicio> falló en <paso> (<código>)». Un código sin la forma de `CODIGO` no viaja, y un
+  `PT4xx` queda sólo en el mensaje, como en `http5xx`. No toca el core.
+- **El contrato con finance se probó contra su código real**, no sólo con los tests de acá: los eventos
+  que arma el SDK pasaron por `validarLote` y `prepararEvento` de `supabase/functions/_shared/monitor/`
+  (`origin/main` 1dba63f). El vocabulario va a Terceros con una sola huella por servicio y función, por
+  `withHandler` y por `reportarTercero`; un `http_401` y un `http_403` dan la misma huella de
+  credencial; con `tercero` y sin código queda como error; y una marca de la 0.1.4 sale igual que hoy.
+- **Sólo cambia `./deno`.** `dist/browser.js` sale idéntico byte a byte al de la 0.1.4 (mismo sha256,
+  4093 B gzip de 4096): los 3 B de margen y D7 no se tocan.
+- **Compatible hacia atrás.** Un cliente con la 0.1.4 que sube a la 0.1.5 sin tocar su código manda lo
+  mismo que antes: sin `tercero`, ningún evento cambia de forma, y sin `final`, todo se reporta.
+- **Falta:** el tag `v0.1.5` (lo empuja Mariano: un push desde Claude Code no dispara `publish.yml`).
+  La compuerta de los pasos 8, 9, 11 y 12 del plan de finance es que `npm view @eiaifactory/monitor@0.1.5`
+  responda.
+- **Siguen pendientes** la optimización de `procesar()` y D7.

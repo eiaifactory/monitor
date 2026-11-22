@@ -122,9 +122,24 @@ export interface Falla {
   paso: string;
   /**
    * El SQLSTATE (`57014`) o el `PGRSTnnn` que devolvió la base, o un texto fijo del programa en
-   * minúscula (`timeout`, `anthropic_status_529`). Nunca algo que escribió una persona.
+   * minúscula (`timeout`, `anthropic_status_529`). Nunca algo que escribió una persona. Con
+   * `tercero`, es lo que devolvió el servicio de afuera (`http_503`, `timeout`, `red`), no el status
+   * de esta función.
    */
   codigo?: string;
+  /**
+   * (0.1.5) El servicio de afuera que falló (`interbanking`, `flete47`): viaja como
+   * `contexto.tercero`. Finance lo manda a Terceros sólo si el servicio está en su lista y el código
+   * en su vocabulario (`http_500`…`http_599`, `http_429`, `timeout`, `red`, `servidor`); si no, entra
+   * como error, como siempre. Con la forma del paso; si no la tiene, no viaja.
+   */
+  tercero?: string;
+  /**
+   * (0.1.5) Si es el último intento. Con `false`, `withHandler` devuelve la respuesta igual y no la
+   * reporta: quien reintenta va a volver a pedir. Por defecto (y con cualquier cosa que no sea
+   * `false`) se reporta: si no se dice qué intento es, nunca se pierde.
+   */
+  final?: boolean;
 }
 
 /**
@@ -155,11 +170,21 @@ export function marcarFalla(respuesta: Response, falla: Falla): Response {
   return respuesta;
 }
 
+/** Un identificador que pasa la regla, o nada: lo que no la pasa no viaja. */
+function forma(v: unknown, regla: RegExp): string | undefined {
+  return typeof v === 'string' && regla.test(v) ? v : undefined;
+}
+
+/** `contexto.tercero` (0.1.5), sólo si el servicio tiene la forma del paso. */
+function deTercero(servicio: unknown): { tercero: string } | undefined {
+  const tercero = forma(servicio, PASO);
+  return tercero ? { tercero } : undefined;
+}
+
 /** «stock-loss: respondió 500 en stock_loss_apply (57014)», con lo que pase la validación. */
-function http5xx(funcion: string, res: Response): Record<string, unknown> {
-  const f = fallas.get(res);
-  const paso = typeof f?.paso === 'string' && PASO.test(f.paso) ? f.paso : undefined;
-  const codigo = typeof f?.codigo === 'string' && CODIGO.test(f.codigo) ? f.codigo : undefined;
+function http5xx(funcion: string, res: Response, f: Falla | undefined): Record<string, unknown> {
+  const paso = forma(f?.paso, PASO);
+  const codigo = forma(f?.codigo, CODIGO);
   return {
     name: 'HttpError',
     message: `${funcion}: respondió ${res.status}${paso ? ` en ${paso}` : ''}${codigo ? ` (${codigo})` : ''}`,
@@ -206,7 +231,8 @@ function respuestaDeError(error: unknown, opciones: OpcionesHandler): Response {
 
 /**
  * Envuelve el handler de `Deno.serve`. Si responde, devuelve esa respuesta tal cual y reporta
- * las 5xx (sin el cuerpo: puede traer datos), con el paso de `marcarFalla` si lo tiene. Si lanza,
+ * las 5xx (sin el cuerpo: puede traer datos), con el paso de `marcarFalla` si lo tiene, salvo las
+ * marcadas con `final: false`. Si lanza,
  * lo reporta y devuelve `aRespuesta(error)`
  * o un 500 JSON. Al final manda todo lo capturado en el request, también lo que la función
  * capturó a mano antes de contestar un 200.
@@ -221,7 +247,11 @@ export function withHandler<A extends unknown[]>(
       const res = await handler(req, ...args);
       if (res.status >= 500) {
         try {
-          monitor.capturar(http5xx(monitor.funcion, res), { ruta: rutaDe(req) });
+          const f = fallas.get(res);
+          // Un intento que no es el último (0.1.5): el que reintenta va a volver a pedir.
+          if (f?.final !== false) {
+            monitor.capturar(http5xx(monitor.funcion, res, f), { ruta: rutaDe(req), contexto: deTercero(f?.tercero) });
+          }
         } catch {
           // Regla 0: reportar nunca cambia la respuesta de la función
         }
@@ -240,4 +270,48 @@ export function withHandler<A extends unknown[]>(
       despachar(monitor);
     }
   };
+}
+
+/** Lo que `reportarTercero` necesita saber (0.1.5). */
+export interface FallaDeTercero {
+  /** El servicio de afuera (`interbanking`, `flete47`): va como `contexto.tercero`. */
+  servicio: string;
+  /**
+   * Lo que devolvió el servicio, como texto fijo del programa: `http_429`, `http_401`, `timeout`,
+   * `red`, `servidor`, `http_503`. Nunca un status numérico ni algo que escribió una persona.
+   */
+  codigo: string;
+  /** En qué paso de la función, como en `Falla.paso`. */
+  paso?: string;
+  /** Con `false` no se reporta: hay otro intento. Por defecto, sí. */
+  final?: boolean;
+}
+
+/**
+ * (0.1.5) Reporta la falla de un servicio de afuera que `withHandler` no ve: lo que la función no
+ * contesta como 5xx (el 429 que frena el día, un 401/403 del servicio, una falla que se maneja y
+ * se responde 200). Captura un error **sin `status`**, con el código como texto: así `esEsperado`
+ * no descarta un 401/403, que es nuestro (una credencial vencida) y finance lo deja como error.
+ * «interbanking-sync: interbanking falló en saldos (http_429)». Sale con lo demás al terminar el
+ * request de `withHandler`; fuera de él, con `monitor.flush()`. Lo que no tiene forma no viaja (un
+ * servicio raro va sin `contexto.tercero`: entra como error), y el evento sale igual. Nunca lanza.
+ */
+export function reportarTercero(monitor: Monitor, f: FallaDeTercero): void {
+  try {
+    if (f.final === false) return;
+    const servicio = forma(f.servicio, PASO);
+    const paso = forma(f.paso, PASO);
+    const codigo = forma(f.codigo, CODIGO);
+    monitor.capturar(
+      {
+        name: 'TerceroError',
+        message: `${monitor.funcion}: ${servicio ?? 'un servicio de afuera'} falló${paso ? ` en ${paso}` : ''}${codigo ? ` (${codigo})` : ''}`,
+        // Sin `status`, a propósito. Un PT4xx queda sólo en el mensaje, como en `http5xx`.
+        code: codigo && !codigo.startsWith('PT4') ? codigo : undefined,
+      },
+      { contexto: deTercero(servicio) },
+    );
+  } catch {
+    // Regla 0
+  }
 }

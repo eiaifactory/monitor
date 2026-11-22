@@ -72,7 +72,7 @@ Instalado, captura solo los errores no manejados (`error`) y las promesas rechaz
 |---|---|
 | `initMonitor({ clave, url?, release?, ignorar?, maxBuffer?, maxPorMinuto?, debug? })` | Instala los listeners. Una sola vez por página; las siguientes se ignoran. |
 | `capturar(error, { ruta?, ubicacion?, contexto? })` | Reporta un error atajado a mano (el `catch` de un flujo que igual querés ver). |
-| `setContext({ clave: valor })` | Suma datos a los próximos eventos. Sólo escalares; `undefined` saca la clave. Finance guarda sólo las claves de su lista cerrada (`http`, `paso`, `accion`, `prueba`): otra clave viaja y se descarta al llegar. |
+| `setContext({ clave: valor })` | Suma datos a los próximos eventos. Sólo escalares; `undefined` saca la clave. Finance guarda sólo las claves de su lista cerrada (`http`, `paso`, `accion`, `prueba`, `tercero`): otra clave viaja y se descarta al llegar. |
 | `setUsuario({ id, rol? })` / `limpiarUsuario()` | Quién estaba usando el sistema. |
 | `onErrorQuery` / `onErrorMutation` | Para `QueryCache` / `MutationCache`. De la key se manda sólo el primer elemento si es texto (el nombre de la consulta), como `ubicacion`: el resto puede traer ids o filtros. |
 | `esEsperado(error)` | La misma regla que usa el SDK para no reportar (ver abajo). |
@@ -81,7 +81,7 @@ Instalado, captura solo los errores no manejados (`error`) y las promesas rechaz
 ## Edge functions (Supabase)
 
 ```ts
-import { initMonitor, marcarFalla, withHandler } from 'npm:@eiaifactory/monitor@0.1.4/deno';
+import { initMonitor, marcarFalla, withHandler } from 'npm:@eiaifactory/monitor@0.1.5/deno';
 
 const monitor = initMonitor({
   clave: Deno.env.get('MONITOR_CLAVE'),
@@ -139,6 +139,55 @@ if (rpc.error) {
 - Sin código, `codigo` es el status. Un `PT4xx` queda sólo en el mensaje: el usuario vio un 5xx, y
   como `codigo` lo descartaría como rechazo de negocio.
 
+**La falla de un tercero (0.1.5).** Cuando lo que falló es un servicio de afuera (Interbanking, la
+API de 47 Flete) y la causa no es nuestra, finance la manda a una sección propia del Monitor,
+**Terceros**: no suma en los contadores, no avisa, no sube de prioridad y el robot no la toca. El SDK
+sólo **propone**; finance decide:
+
+- Es de un tercero sólo si el servicio está en la lista de finance (`interbanking`, `flete47`,
+  `transbank`, `anthropic`, `resend`) **y** el código está en su vocabulario: `http_500`…`http_599`,
+  `http_429` (nos pide que esperemos), `timeout`, `red` o `servidor` (el error del servidor viene
+  adentro de su respuesta, como el `E-000` de 47 Flete). Todo lo demás entra como error, como siempre.
+- Un `http_401` o `http_403` del servicio es **nuestro** (una credencial vencida, un permiso que
+  falta): entra como error, en un solo problema por integración.
+- Un evento con `huella_manual` (un cron, el CI) **nunca** es de Terceros.
+- El código tiene que ser **lo que devolvió el servicio**, no el status de nuestra función: con
+  `tercero` y sin código, `codigo` es nuestro 502 y finance lo deja como error.
+
+En una 5xx, `marcarFalla` suma `tercero` (el servicio, que viaja como `contexto.tercero`) y `final`:
+
+```ts
+return marcarFalla(respuesta502, {
+  paso: 'interbanking',
+  codigo: 'http_503',        // lo que devolvió Interbanking
+  tercero: 'interbanking',
+  final: cuerpo.ultimo_intento !== false, // lo sabe quien reintenta
+});
+// → «interbanking-sync: respondió 502 en interbanking (http_503)», codigo 'http_503',
+//   contexto { tercero: 'interbanking' }
+```
+
+- **`final: false`**: `withHandler` devuelve la respuesta igual y **no la reporta**, porque va a haber
+  otro intento. Se reporta sólo el último. Por defecto, y con cualquier cosa que no sea `false`,
+  `final` es `true`: si no se dice qué intento es, se reporta, nunca se pierde. Vale para cualquier
+  5xx marcada: marcá `final: false` sólo en las fallas que de verdad se van a reintentar.
+- `tercero` lleva la forma del paso (`[A-Za-z_][\w.]*`); si no la tiene, no viaja y el evento sale
+  igual, como error.
+
+Lo que **no** es una 5xx `withHandler` no lo ve (el 429 que frena el día y se contesta 200, un
+401/403 del servicio): va por `reportarTercero`, que lo captura a mano **sin `status`**, así
+`esEsperado` no descarta el 401/403. Sale con lo demás al terminar el request de `withHandler`;
+fuera de él, con `monitor.flush()`.
+
+```ts
+import { reportarTercero } from 'npm:@eiaifactory/monitor@0.1.5/deno';
+
+reportarTercero(monitor, { servicio: 'interbanking', codigo: 'http_429', paso: 'saldos', final: true });
+// → «interbanking-sync: interbanking falló en saldos (http_429)», tipo TerceroError
+```
+
+Usá uno u otro para la misma falla, no los dos: serían dos eventos.
+
 | Opción de `withHandler` | |
 |---|---|
 | `esEsperado(error)` | Además de los esperados de siempre. |
@@ -154,7 +203,8 @@ Decisión del spec: los rechazos de negocio y los `toast.error` no son incidente
 - **`PT4xx`**: el `RAISE` de negocio de las funciones de la base (`raise exception using errcode = 'PT402'`).
 - **`AbortError`**: una petición cancelada a propósito.
 - **401 / 403**: sesión vencida o sin permiso. También los `Auth*` de Supabase con status 4xx
-  (contraseña mal escrita, mail sin confirmar).
+  (contraseña mal escrita, mail sin confirmar). El 401/403 de un servicio de afuera sí se reporta,
+  con `reportarTercero` (0.1.5).
 - Lo que el cliente declare en `ignorar` (texto contenido en el mensaje, o una regex).
 
 ## Frenos del lado del cliente
@@ -219,7 +269,7 @@ rechazan uno por uno con `lote_excedido`) y **hasta 64 KB** (si no, `413` y se r
 | `rol` | string | no | 64 | |
 | `dispositivo_id` | string | no | 64 | Uuid del dispositivo |
 | `user_agent` | string | no | 512 | |
-| `contexto` | objeto plano de escalares | no | 2 KB | Se guardan sólo `http` (entero 0-599), `paso`, `accion` (una etiqueta sin dígitos, `@` ni `:`), `prueba` y `_cortado`. Lo demás se descarta y se cuenta en `_descartadas` |
+| `contexto` | objeto plano de escalares | no | 2 KB | Se guardan sólo `http` (entero 0-599), `paso`, `accion` (una etiqueta sin dígitos, `@` ni `:`), `prueba`, `tercero` (el servicio de afuera que falló, ver «La falla de un tercero») y `_cortado`. Lo demás se descarta y se cuenta en `_descartadas` |
 | `repeticiones` | entero ≥ 1 | no | — | Colapso local. Default 1 |
 | `huella_manual` | string | no | 128 | Reemplaza la agrupación calculada (`cron:<función>`, como hace `app.run_job`) |
 
