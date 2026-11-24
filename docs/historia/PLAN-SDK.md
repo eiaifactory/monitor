@@ -7,8 +7,8 @@
 [`PLAN-MONITOR.md`](https://github.com/eiaifactory/eiaifactory-finance/blob/main/docs/historia/PLAN-MONITOR.md)
 (este SDK va entre su PR A, ya mergeado, y el piloto de Fratelli) · **Revisado con `/plan-review` el
 2026-09-27** · **Estado:** v0.1.0 publicada en npm el 2026-09-28 y andando en Supabase Edge desde el
-2026-09-29 (piloto de Fratelli en staging). v0.1.1 publicada por `publish.yml` el 2026-10-10, con
-provenance
+2026-09-29 (piloto de Fratelli en staging). De la v0.1.1 a la **v0.1.5** las publicó `publish.yml`
+con provenance, entre el 2026-10-10 y el 2026-11-22; `latest` en npm es la 0.1.5
 
 ## TLDR
 
@@ -246,7 +246,8 @@ nunca en la URL; sin `sendBeacon`; la huella la calcula el server; el SDK redact
   con `timeout`. De 6 mutaciones del SDK, los nuevos detectan las 6 y los viejos 2. *Se pierde* la
   cota absoluta: un `capturar` que se vuelva lento sin leer el error ni hacer I/O no lo agarra
   ningún test (el viejo tampoco lo agarraba de forma confiable: medía ruido).
-- ~~**La regex de email de la PII es cuadrática**~~ **— arreglada en la 0.1.2, sin publicar.**
+- ~~**La regex de email de la PII es cuadrática**~~ **— arreglada y publicada en la 0.1.2 el
+  10-oct-2026.**
   `EMAIL` en `src/core/pii.ts` hacía backtracking O(n²) sobre una tira de `[A-Za-z0-9._%+-]` sin
   `@`: un stack de 8 KB así costaba 44 ms por evento en desktop, en el hilo principal, y como el
   evento se arma antes de colapsar, una ráfaga de 100 errores iguales bloqueaba ~4 s. Ahora la
@@ -256,9 +257,11 @@ nunca en la URL; sin `sendBeacon`; la huella la calcula el server; el SDK redact
   propuesto, un dominio más largo quedaba sin redactar entero. Lo que se resigna: de una parte
   local de más de 64 (inválida) queda visible el comienzo. «lotes de hasta 60 KB…»
   (`test/browser/envio.test.ts`) bajó de ~1 s a ~55 ms, y el navegador pesa 4086 B gzip de 4096.
-  **Falta:** publicarla con el tag `v0.1.2` (OK de Mariano), y finance, que corre la misma regex
-  cuadrática en la ingesta (`supabase/functions/_shared/monitor/pii.ts:12`, visto en su `main` el
-  10-oct) y tiene que sumar el mismo caso a su `pii.test.ts`.
+  *(Verificado el 24-nov-2026: no falta nada de esto. El tag `v0.1.2` se publicó el 10-oct y npm
+  la tiene. La ingesta de finance corre hoy la misma regex, con el `{1,64}`
+  (`supabase/functions/_shared/monitor/pii.ts:25` en su `main`, idéntica carácter por carácter a la
+  del SDK), aunque su PR #110 se cerró sin mergear y el arreglo entró por otro camino. Y Fratelli
+  está en `^0.1.5`, no en la 0.1.0.)*
 
 ## 0.1.3 — qué función falló (Fase 1 del Monitor, 18-oct-2026)
 
